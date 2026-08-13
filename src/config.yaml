@@ -228,3 +228,31 @@ ui:
   rows_per_page: 50
   chart_lookback_bars: 250
   theme_accent: "#2F6F62"
+
+# -------------------------------------------------------------------
+# CHART (v2 UI)
+# -------------------------------------------------------------------
+chart:
+  default_timeframe: "1d"
+  default_type: "candle"
+  renko_brick_mode: "atr"
+  renko_brick_atr_mult: 1.0
+
+# -------------------------------------------------------------------
+# SCAN FILTER CHIPS (v2 UI) — add a chip here, never in Python
+# -------------------------------------------------------------------
+filter_chips:
+  - {id: above_sma200,   label: "Close > SMA200",    expr: "close > sma200"}
+  - {id: above_sma50,    label: "Close > SMA50",     expr: "close > sma50"}
+  - {id: sma200_rising,  label: "SMA200 rising",     expr: "sma200_slope > 0"}
+  - {id: stacked,        label: "SMAs stacked up",   expr: "sma_stack = 'stacked_up'"}
+  - {id: bottom_sma200,  label: "Bottom at SMA200",  expr: "bottom_at_sma = 'at_sma200'"}
+  - {id: undercut,       label: "Undercut L1",       expr: "undercut = true"}
+  - {id: rsi_above,      label: "RSI >",       expr: "rsi14 > {v}",        default: 30,  min: 0, max: 100}
+  - {id: rsi_below,      label: "RSI <",       expr: "rsi14 < {v}",        default: 70,  min: 0, max: 100}
+  - {id: adx_above,      label: "ADX >",       expr: "adx14 > {v}",        default: 20,  min: 0, max: 60}
+  - {id: adr_above,      label: "ADR% >",      expr: "adr_pct20 > {v}",    default: 2.5, min: 0, max: 10, step: 0.1}
+  - {id: deliv_above,    label: "Delivery% >", expr: "deliv_pct_sma20 > {v}", default: 40, min: 0, max: 100}
+  - {id: turnover_above, label: "Turnover ≥ ₹cr", expr: "turnover_sma20 > {v}*10000000", default: 5, min: 0, max: 100}
+  - {id: rs_above,       label: "RS rank >",   expr: "rs_rank_pct > {v}",  default: 70,  min: 0, max: 100}
+  - {id: rvol_above,     label: "RVOL >",      expr: "rvol > {v}",         default: 1.5, min: 0.5, max: 5, step: 0.1}

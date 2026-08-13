@@ -59,8 +59,22 @@ def regime_state(con, as_of: date) -> str:
 
 
 def scan(con, preset_name: str, as_of: date | None = None,
-         lookback_bars: int = 400, ignore_stale: bool = False) -> pd.DataFrame:
-    """Find W-patterns whose entry trigger fires on (or just before) as_of."""
+         lookback_bars: int = 400, ignore_stale: bool = False,
+         apply_preset: bool = True) -> pd.DataFrame:
+    """
+    Find W-patterns whose entry trigger fires on (or just before) as_of.
+
+    apply_preset=True (default, unchanged behaviour): also apply the
+    preset's own conditions and the relative-strength filter — this is
+    what backtest.py and the CLI keep using.
+
+    apply_preset=False: apply ONLY the pattern rules and the hard
+    tradability filters already baked into active_universe() (EQ series,
+    ASM/GSM exclusion, minimum liquidity) — skip the preset's conditions
+    and the RS filter, and return every features_1d column for the
+    signal bar attached to each row, so a caller (the v2 scan screen) can
+    filter the superset in-memory with filter chips instead of re-scanning.
+    """
     if CFG["validation"]["abort_scan_if_stale"] and not ignore_stale:
         stale, latest_bar, latest_cal = data_is_stale(con)
         if stale:
@@ -126,17 +140,18 @@ def scan(con, preset_name: str, as_of: date | None = None,
         p, sig_pos = picked
 
         row = df.iloc[sig_pos]
-        if not _passes_conditions(row, conditions):
-            continue
-        if CFG["filters"]["use_relative_strength"]:
-            rs = row.get("rs_rank_pct")
-            if rs is None or np.isnan(rs) or rs < CFG["filters"]["rs_rank_min_pct"]:
+        if apply_preset:
+            if not _passes_conditions(row, conditions):
                 continue
+            if CFG["filters"]["use_relative_strength"]:
+                rs = row.get("rs_rank_pct")
+                if rs is None or np.isnan(rs) or rs < CFG["filters"]["rs_rank_min_pct"]:
+                    continue
 
         atr_at = float(atr_series.iloc[p.l2_pos])
         stop = p.l2_price - BT["stop_atr_mult"] * (atr_at if not np.isnan(atr_at) else 0)
 
-        rows.append({
+        out_row = {
             "scan_date": as_of,
             "isin": s["isin"], "symbol": s["symbol"],
             "preset_name": preset_name, "timeframe": "1d",
@@ -155,7 +170,19 @@ def scan(con, preset_name: str, as_of: date | None = None,
             "sma_stack": row.get("sma_stack"),
             "feature_version": None,
             "config_hash": config_hash(preset),
-        })
+        }
+
+        if not apply_preset:
+            fdf = con.execute("""
+                SELECT * FROM features_1d WHERE isin = ? AND date = ?
+            """, [s["isin"], df["date"].iloc[sig_pos]]).df()
+            if not fdf.empty:
+                extra = fdf.iloc[0].to_dict()
+                extra.pop("isin", None)
+                extra.pop("date", None)
+                out_row.update(extra)
+
+        rows.append(out_row)
 
     out = pd.DataFrame(rows)
     log.info("Signals: %d", len(out))

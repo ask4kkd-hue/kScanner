@@ -299,15 +299,36 @@ CREATE TABLE IF NOT EXISTS missed_trades (
     signal_id VARCHAR, scan_date DATE, isin VARCHAR, symbol VARCHAR,
     skip_reason VARCHAR, hypothetical_r FLOAT
 );
+
+-- ===================================================================
+-- V2 UI — watchlist, chart drawings, UI state
+-- ===================================================================
+CREATE TABLE IF NOT EXISTS watchlist (
+    isin VARCHAR PRIMARY KEY, symbol VARCHAR, added_on DATE,
+    note TEXT, target_price DOUBLE, tags VARCHAR
+);
+
+CREATE TABLE IF NOT EXISTS drawings (
+    isin VARCHAR, timeframe VARCHAR, payload VARCHAR, updated_at TIMESTAMP,
+    PRIMARY KEY (isin, timeframe)
+);
+
+CREATE TABLE IF NOT EXISTS ui_prefs (key VARCHAR PRIMARY KEY, value VARCHAR);
 """
+
+_MIGRATIONS = [
+    "ALTER TABLE trades ADD COLUMN IF NOT EXISTS timeframe VARCHAR DEFAULT '1d'",
+]
 
 
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
-    """Create every table. Safe to run repeatedly."""
+    """Create every table and apply migrations. Safe to run repeatedly."""
     for stmt in SCHEMA.split(";"):
         s = stmt.strip()
         if s:
             con.execute(s)
+    for stmt in _MIGRATIONS:
+        con.execute(stmt)
 
 
 def table_counts(con: duckdb.DuckDBPyConnection) -> dict:
