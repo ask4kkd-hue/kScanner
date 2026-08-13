@@ -39,6 +39,50 @@ def config_hash(obj: Any) -> str:
     return hashlib.sha256(blob).hexdigest()[:12]
 
 
+def save_preset(name: str, conditions: list[str], *,
+                path: Path | str = CONFIG_PATH,
+                timeframe: str = "1d", pattern: str = "w_double_bottom") -> None:
+    """
+    Append a new preset to config.yaml's presets: block — a surgical text
+    insert, not a full yaml.dump, so every existing comment and the hand-kept
+    formatting elsewhere in the file survive untouched. Also updates the
+    in-memory CFG so the new preset is usable immediately, no restart.
+
+    This is the "Save these chips as a preset" scan-screen action from the
+    v2 UI — never generates conditions itself, just persists ones already
+    built from filter chips.
+    """
+    if name in CFG["presets"]:
+        raise ValueError(f"Preset '{name}' already exists.")
+
+    text = Path(path).read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+
+    start = next((i for i, ln in enumerate(lines) if ln.rstrip() == "presets:"), None)
+    if start is None:
+        raise RuntimeError("Could not find 'presets:' block in config.yaml.")
+
+    end = len(lines)
+    for i in range(start + 1, len(lines)):
+        stripped = lines[i].rstrip("\n")
+        if stripped and not stripped[0].isspace():
+            end = i
+            break
+
+    cond_lines = "".join(f'      - "{c}"\n' for c in conditions)
+    block = (f"\n  {name}:\n"
+            f'    timeframe: "{timeframe}"\n'
+            f'    pattern: "{pattern}"\n'
+            f"    conditions:\n"
+            f"{cond_lines}")
+
+    lines.insert(end, block)
+    Path(path).write_text("".join(lines), encoding="utf-8")
+
+    CFG["presets"][name] = {"timeframe": timeframe, "pattern": pattern,
+                           "conditions": list(conditions), "name": name}
+
+
 def resolve_preset(cfg: dict, name: str) -> dict:
     """
     Resolve a preset, following `inherits` and applying `conditions_add`
