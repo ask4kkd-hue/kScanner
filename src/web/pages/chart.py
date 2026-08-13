@@ -78,6 +78,29 @@ def _save_drawings(con, isin: str, timeframe: str, overlays: list[dict]) -> None
     """, [isin, timeframe, json.dumps(overlays), ])
 
 
+def _active_pattern(bars_df: pd.DataFrame):
+    """Same detection rules for every timeframe — the point of 'D/W/M
+    together' is comparing the SAME logic applied to each timeframe's own
+    bars, not different rules per timeframe."""
+    pcfg = CFG["pattern"]
+    atr_s = ind.atr(bars_df["high"], bars_df["low"], bars_df["close"])
+    candidates = pat.find_w_patterns(
+        bars_df, atr_s,
+        zigzag_pct=pcfg["zigzag_pct"], min_separation=pcfg["min_separation"],
+        max_separation=pcfg["max_separation"], require_undercut=pcfg["require_undercut"],
+        min_depth_pct=pcfg["min_depth_pct"], exclude_locked_bars=pcfg["exclude_locked_bars"],
+        confirm_max_wait=pcfg["entry_max_wait"],
+    )
+    return candidates[-1] if candidates else None
+
+
+# Distinct color per timeframe for the "D/W/M together" overlay — direct
+# text labels ("D-L1" etc.) carry the identity too, color is never the only
+# cue. Picked to stay clear of the SMA overlay palette (blue/orange/yellow/
+# magenta/violet/aqua are already spoken for by sma10-200 + AVWAP).
+TF_MARKER_COLOR = {"D": theme.REF_LINE_COLOR, "W": theme.WARNING, "M": "#8B5CF6"}
+
+
 def render(con, state: dict) -> None:
     comp.page_title("Chart")
 
@@ -100,6 +123,7 @@ def render(con, state: dict) -> None:
         avwap_sel = ui.select(AVWAP_OPTIONS, value="(none)",
                               label="Anchor VWAP at").classes("w-44")
         show_w = ui.checkbox("Mark last W L1/L2", value=True)
+        show_all_tf = ui.checkbox("D/W/M together", value=False)
 
     chart = KLineChart()
 
@@ -178,16 +202,7 @@ def render(con, state: dict) -> None:
         # Ashi/Renko transform) — same detection rules regardless of
         # timeframe, applied to that timeframe's own bars, per the "same
         # logic across 1D/1W/1M" instruction.
-        pcfg = CFG["pattern"]
-        atr_s = ind.atr(bars_df["high"], bars_df["low"], bars_df["close"])
-        candidates = pat.find_w_patterns(
-            bars_df, atr_s,
-            zigzag_pct=pcfg["zigzag_pct"], min_separation=pcfg["min_separation"],
-            max_separation=pcfg["max_separation"], require_undercut=pcfg["require_undercut"],
-            min_depth_pct=pcfg["min_depth_pct"], exclude_locked_bars=pcfg["exclude_locked_bars"],
-            confirm_max_wait=pcfg["entry_max_wait"],
-        )
-        active = candidates[-1] if candidates else None
+        active = _active_pattern(bars_df)
 
         metrics_row.clear()
         with metrics_row:
@@ -203,7 +218,28 @@ def render(con, state: dict) -> None:
                         f"color:{theme.TEXT_PRIMARY}")
 
         server_overlays = []
-        if show_w.value and active:
+        if show_w.value and show_all_tf.value:
+            # Same pattern, all three timeframes, color-coded, on whichever
+            # candles are currently shown — comparing D/W/M side by side was
+            # the actual point of the original request, not just cycling
+            # the toggle one timeframe at a time.
+            per_tf_bars = {"D": daily, "W": rs.to_weekly(daily), "M": rs.to_monthly(daily)}
+            for label_tf, tf_bars in per_tf_bars.items():
+                if tf_bars.empty:
+                    continue
+                tf_active = active if label_tf == tf else _active_pattern(
+                    tf_bars.reset_index(drop=True))
+                if not tf_active:
+                    continue
+                color = TF_MARKER_COLOR[label_tf]
+                for lvl, price in (("L1", tf_active.l1_price), ("L2", tf_active.l2_price)):
+                    server_overlays.append({
+                        "name": "priceLine", "points": [{"value": price}],
+                        "extendData": f"{label_tf}-{lvl}",
+                        "styles": {"line": {"color": color}},
+                        "lock": True,
+                    })
+        elif show_w.value and active:
             for label, price in (("L1", active.l1_price), ("L2", active.l2_price),
                                  ("neckline", active.neckline)):
                 server_overlays.append({

@@ -316,7 +316,6 @@ The bar at the top of the app is the first thing on screen on purpose.
 
 Known gaps, not yet built:
 
-- The v2 Chart screen's D/W/M toggle runs the *same* L1/L2 detection logic on each timeframe's own bars (via `resample.py`), but shows one timeframe at a time. Showing all three simultaneously on one chart, each marked in a different color, is still open.
 - `features_1w`/`features_1m` are empty — weekly/monthly indicator values (SMA, RSI, etc.) were never populated, only OHLCV bars. The Today screen's medium/long-term opportunity sections detect this and say "not built yet" rather than reporting zero signals.
 
 ---
