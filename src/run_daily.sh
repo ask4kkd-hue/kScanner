@@ -7,4 +7,4 @@ python universe.py
 python ingest.py
 python validate.py --days 1
 python features.py
-echo "Done. Launch with: streamlit run app.py"
+echo "Done. Launch with: cd web && python main.py"

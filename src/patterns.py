@@ -351,8 +351,8 @@ def select_active_pattern(
     Rule: keep only patterns whose entry trigger actually fired, then take
     the one with the most recent trigger.
       - scan.py passes max_bars_since_trigger so only fresh triggers count.
-      - app.py's chart leaves it None, to show the last real setup for this
-        symbol regardless of age.
+      - web/pages/chart.py leaves it None, to show the last real setup for
+        this symbol regardless of age.
 
     Returns (pattern, signal_bar_pos), or None if nothing ever triggered.
     """

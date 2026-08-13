@@ -75,9 +75,11 @@ Everything else has working defaults. If you ever move the project, this one lin
 
 ```cmd
 python test_core.py
+python test_resample.py
+python test_advisor.py
 ```
 
-Expected: **45 passed, 0 failed**. This checks Wilder's RMA, population stdev, locked Supertrend bands, anchored VWAP, pivot detection, and the look-ahead guard. If any of these fail, stop — every number downstream would be wrong.
+Expected: **46 passed** (`test_core.py`), **13 passed** (`test_resample.py`), **15 passed** (`test_advisor.py`), 0 failed across all three. `test_core.py` checks Wilder's RMA, population stdev, locked Supertrend bands, anchored VWAP, pivot detection, and the look-ahead guard — if any of these fail, stop, every number downstream would be wrong. `test_resample.py` checks the D/W/M and Heikin Ashi/Renko chart transforms; `test_advisor.py` checks the position-status rules never invent a number or predict a price.
 
 ---
 
@@ -143,10 +145,11 @@ python scan.py --preset w_baseline --export
 ### Step 6 — Launch the app
 
 ```cmd
-streamlit run app.py
+cd web
+python main.py
 ```
 
-Opens at `http://localhost:8501`.
+Opens at `http://localhost:8080`. Eight screens on the left: Today (default landing) · Scan · Chart · Watchlist · Holdings · Performance · Backtest · Data.
 
 ---
 
@@ -165,7 +168,8 @@ Skipped four days? The calendar anti-join finds exactly what is missing — holi
 
 Then:
 ```cmd
-streamlit run app.py
+cd web
+python main.py
 ```
 
 ### Weekly — do not skip this
@@ -312,7 +316,8 @@ The bar at the top of the app is the first thing on screen on purpose.
 
 Known gaps, not yet built:
 
-- Same L1/L2 W-pattern logic across 1D / 1W / 1M, marked in different colors
+- The v2 Chart screen's D/W/M toggle runs the *same* L1/L2 detection logic on each timeframe's own bars (via `resample.py`), but shows one timeframe at a time. Showing all three simultaneously on one chart, each marked in a different color, is still open.
+- `features_1w`/`features_1m` are empty — weekly/monthly indicator values (SMA, RSI, etc.) were never populated, only OHLCV bars. The Today screen's medium/long-term opportunity sections detect this and say "not built yet" rather than reporting zero signals.
 
 ---
 
@@ -341,11 +346,13 @@ python backtest.py --preset w_baseline --sweep      # entry x exit grid
 python backtest.py --preset w_full --sample out     # out-of-sample, ONCE
 
 python test_core.py                                 # verify the maths
-streamlit run app.py                                # the UI
+python test_resample.py                             # verify D/W/M and chart-type transforms
+python test_advisor.py                              # verify the position-status rules
+cd web && python main.py                            # the UI
 ```
 
 ---
 
 ## The one-paragraph version
 
-Run `run_daily.bat`, then `streamlit run app.py`. Skipped days fix themselves. Run `run_weekly.bat` on Sundays. Before you trust any backtest number, run the `w_naked` control first and check the trade count is above 100.
+Run `run_daily.bat`, then `cd web && python main.py`. Skipped days fix themselves. Run `run_weekly.bat` on Sundays. Before you trust any backtest number, run the `w_naked` control first and check the trade count is above 100.

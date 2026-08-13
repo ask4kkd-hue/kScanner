@@ -31,7 +31,7 @@ python features.py
 if errorlevel 1 goto :error
 
 echo.
-echo Done. Launch the app with:  streamlit run app.py
+echo Done. Launch the app with:  cd web ^&^& python main.py
 goto :eof
 
 :error
