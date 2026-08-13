@@ -780,9 +780,22 @@ The backtest says what the logic can do. The journal says what you did. The gap 
 
 ## 15. User Interface
 
-**Streamlit**, five tabs: Scan · Chart · Backtest · Journal · Data.
+### 15.0 v2 — NiceGUI rebuild (branch `v2-ui`, in progress)
 
-### 15.1 One deliberate design decision
+**v1 (Streamlit, `app.py`) is preserved on `main` as the working fallback** — `git checkout main && streamlit run app.py` always gets it back. v2 is a ground-up rebuild on branch `v2-ui`, built screen-by-screen per `docs/v2_instructions.md`, each screen committed once it passed available verification. Not yet merged to `main`; pending the user's own browser click-through (no browser-automation tool was available while building it — every screen was verified by isolated server-side render checks and, where the logic could be exercised directly, by calling it outside the UI entirely. See §18 for exactly what was and wasn't confirmed this way).
+
+**Eight screens**, left-drawer nav (collapsible, state persisted in `ui_prefs`): Today (default landing) · Scan · Chart · Watchlist · Holdings · Performance · Backtest · Data.
+
+- **Today** — status, open positions with advisor reasons, new opportunities, P&L, watchlist near-trigger. Reads the *last persisted* `signals_1d` scan rather than running a live scan, specifically to hit the "loads in under 2s" requirement — measured 0.23–0.34s.
+- **Chart** — D/W/M timeframes and Candle/Line/Heikin Ashi/Renko chart types, all resampled server-side (`resample.py`) so no indicator or transform math runs in JavaScript. A vendored `klinecharts` 10.0.2 (no CDN, per the offline requirement) renders candles; drawings (horizontal line, trend line, ray, rectangle, fibonacci retracement, text) persist per `(isin, timeframe)` in a new `drawings` table. W-pattern L1/L2/neckline markers and AVWAP are computed server-side and injected as overlays tagged `groupId="server"`, so they're never mistaken for — or saved back as — user drawings.
+- **Scan** — runs `scan.scan(apply_preset=False)` once per click (a superset with every `features_1d` column attached), then filters that cached DataFrame in-memory as filter chips (declared in `config.yaml`, not Python) are toggled — no re-scan per chip change.
+- **Watchlist / Holdings** — manual entry only (no broker fetch). Every position card's numbers come from one `advisor.position_status()` call, so the card and its stated reasons can never disagree.
+- **Performance** — equity curve, attribution by preset/timeframe/sector, adherence and behaviour-tag analysis, live-vs-backtest comparison. "By where the second bottom formed" was dropped after discovering the live `trades` table never actually captures `bottom_at_sma` (categorical fields aren't in journal.py's entry-snapshot) — flagged explicitly in the UI rather than faked.
+- **Backtest / Data** — ported from v1 behaviour-unchanged, rebuilt against the same `backtest.py`/`table_counts()` functions.
+
+New, additive-only backend support: `resample.py` (weekly/monthly bar grouping — by actual trading sessions, not calendar dates, so a holiday-shortened week doesn't manufacture a wrong low; Heikin Ashi; Renko with the standard 2-brick reversal rule), `watchlist.py`, `advisor.py` (descriptive-only position status — never "will"/"expect"/"likely", never a price prediction; if no backtest exists for a preset it says exactly that), and `scan.scan(..., apply_preset=False)`. `db.py` gained three new tables (`watchlist`, `drawings`, `ui_prefs`) and `trades.timeframe`, appended to the existing schema — nothing existing was altered.
+
+### 15.1 One deliberate design decision (carries over to v2)
 
 **The data-health strip sits above everything, always visible.** Accuracy is this project's stated priority, so the interface makes data trustworthiness the first thing on screen rather than burying it in a settings page.
 
@@ -792,9 +805,9 @@ The backtest says what the logic can do. The journal says what you did. The gap 
 
 ### 15.2 Filters are toggles, not code
 
-Relative strength and the regime filter are switches in the sidebar, **off by default**, so they can be A/B tested honestly. The underlying index data is fetched and stored regardless — you cannot test a filter you have no data for.
+Relative strength and the regime filter are switches in the sidebar (v1) / Scan screen (v2), **off by default**, so they can be A/B tested honestly. The underlying index data is fetched and stored regardless — you cannot test a filter you have no data for. v2 extends this: Scan-screen filter chips are declared entirely in `config.yaml`'s `filter_chips:` block — adding one never requires a Python change.
 
-### 15.3 Backtest tab
+### 15.3 Backtest
 
 Three modes: single run, entry × exit sweep, marginal contribution. Trade counts are shown next to every statistic, and results below `min_trades_for_conclusion` are flagged as noise rather than presented as findings.
 
@@ -866,6 +879,11 @@ Order: **scanner → journal → 3 months of real data → broker integration.**
 | 12 Aug 2026 | §15 | Streamlit chosen for UI | Pure Python, no build step, reuses the data layer directly |
 | 12 Aug 2026 | §16 | Broker integration deferred | Not an algo trader; SEBI framework mandatory from Apr 2026; edge unvalidated |
 | 12 Aug 2026 | §10.2 | Indicators hand-coded, not pandas-ta | Wilder RMA / population stdev / locked Supertrend bands decide whether numbers match TradingView; library versions drift on all three |
+| 13 Aug 2026 | §15 | v2 UI rebuild started on branch `v2-ui`: NiceGUI, 8 screens (Today/Scan/Chart/Watchlist/Holdings/Performance/Backtest/Data) | User-directed rebuild (`docs/v2_instructions.md`); v1 (Streamlit) kept on `main` as the revert path throughout |
+| 13 Aug 2026 | §4 | Added `watchlist`, `drawings`, `ui_prefs` tables + `trades.timeframe`, additive only | v2 UI needs watchlist state, persisted chart drawings, and drawer/nav prefs |
+| 13 Aug 2026 | §15 | Vendored `klinecharts` 10.0.2 locally for the Chart screen, no CDN | Offline-only requirement; API verified against the package's own `index.d.ts` (v10 replaced `applyNewData`/`updateData` with an async `setDataLoader`, and there is no chart-level "overlay changed" event — `overrideOverlay`'s per-overlay callbacks are the real mechanism) |
+| 13 Aug 2026 | §14 | `advisor.py` added: descriptive-only position status (HOLD/WATCH/REVIEW), 6 rules, every statement cites a real backtest_curves/backtest_metrics number | Holdings/Today screens need timing guidance without ever predicting a price or outcome |
+| 13 Aug 2026 | §15 | Dropped "by bottom_at_sma" from the live Performance attribution | `trades` never captured this field (categorical, not in journal.py's numeric entry-snapshot) and `signal_id` isn't an actual foreign key into `signals_1d` — rather than fake the cut, it's labelled unavailable and points at the backtest's own slicing instead |
 
 ---
 
