@@ -147,6 +147,28 @@ def render(con, state: dict) -> None:
                 ui.label(f"{row['tag']}: {int(row['trades'])} trades, "
                         f"avg {row['avg_r']:.2f}R, ₹{row['net_pnl']:,.0f}").classes("text-sm")
 
+        ui.label("Do winners differ on…").classes("text-sm font-semibold mt-3")
+        metric_sel = ui.select(
+            ["deliv_pct_sma20", "adr_pct20", "adx14", "rs_rank_pct", "dist_sma200_pct"],
+            value="deliv_pct_sma20").classes("w-48")
+        snapshot_box = ui.column().classes("w-full mt-1")
+
+        def show_snapshot():
+            snapshot_box.clear()
+            sa = jr.snapshot_analysis(con, metric_sel.value)
+            with snapshot_box:
+                if sa.empty:
+                    ui.label("Not enough entry-snapshot data for this metric yet.").classes(
+                        "text-sm")
+                    return
+                for _, row in sa.iterrows():
+                    ui.label(f"{row['bucket']}: {int(row['trades'])} trades, "
+                            f"avg {row['avg_r']:.2f}R, {row['win_rate']:.0f}% win").classes(
+                        "text-sm")
+
+        metric_sel.on_value_change(show_snapshot)
+        show_snapshot()
+
     with comp.section("Live vs backtest", collapsed=True):
         presets_traded = con.execute("""
             SELECT DISTINCT preset_name FROM trades

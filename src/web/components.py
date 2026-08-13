@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+import pandas as pd
 from nicegui import run, ui
 
 import theme
@@ -37,3 +38,30 @@ def page_title(text: str, subtitle: str = "") -> None:
 
 def status_badge(status: str) -> ui.html:
     return ui.html(f'<span class="{theme.status_class(status)}">{status}</span>')
+
+
+def dataframe_grid(df: pd.DataFrame, *, empty_message: str = "No rows.") -> None:
+    """
+    AG Grid from a DataFrame — the one place that turns pandas dtypes into
+    JSON AG Grid can actually receive. Dates/Timestamps aren't JSON-
+    serializable on their own (NiceGUI ships this straight to the browser
+    as JSON), so every datetime-like column is stringified first.
+    """
+    if df.empty:
+        ui.label(empty_message).classes("text-sm")
+        return
+
+    df = df.copy()
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.strftime("%Y-%m-%d")
+        elif df[col].dtype == object:
+            df[col] = df[col].map(
+                lambda v: v.isoformat() if hasattr(v, "isoformat") else v)
+
+    ui.aggrid({
+        "columnDefs": [{"field": c, "sortable": True, "filter": True,
+                       "resizable": True} for c in df.columns],
+        "rowData": df.to_dict("records"),
+        "domLayout": "autoHeight",
+    }).classes("w-full")
