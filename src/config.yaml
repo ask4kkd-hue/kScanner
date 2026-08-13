@@ -1,0 +1,230 @@
+# ===================================================================
+# NSE Scanner — configuration
+#
+# Everything tunable lives here. Nothing in this file requires a code
+# change to take effect.
+#
+# Enabling a feature auto-enables its dependencies (supertrend pulls in
+# atr14 whether you list it or not), so you only list what you care about.
+# ===================================================================
+
+paths:
+  root: "D:/Work/kTradeApps/kScanner/nse_scanner"   # forward slashes work fine on Windows
+  db: "db/market.duckdb"
+  raw: "raw"
+  bhavcopy: "raw/bhavcopy"
+  universe: "raw/universe"
+  flags: "raw/flags"
+  logs: "logs"
+  exports: "exports"
+
+# -------------------------------------------------------------------
+# UNIVERSE
+# -------------------------------------------------------------------
+universe:
+  series_allowed: ["EQ"]           # BE / BZ are surveillance-flagged; excluded
+  exclude_asm: true
+  exclude_gsm: true
+  min_turnover_cr: 5.0             # rupees crore/day, median over 20 days
+  min_price: 20.0
+  min_bars_history: 260            # needs enough history for SMA200 + warm-up
+  benchmark: "^CRSLDX"             # Nifty 500
+  benchmark_alt: "^NSEI"           # Nifty 50
+  delist_after_misses: 10          # stop fetching after N consecutive misses
+
+# -------------------------------------------------------------------
+# DATA INGESTION
+# -------------------------------------------------------------------
+ingest:
+  backfill_start: "2010-01-01"
+  yf_batch_size: 50
+  yf_sleep_seconds: 1.5            # Yahoo rate-limits hard; do not lower this
+  yf_max_retries: 3
+  always_refetch_days: 7           # self-heals yfinance's silent restatements
+  bhavcopy_enabled: true
+  bhavcopy_lookback_days: 400      # how far back to pull enrichment columns
+
+validation:
+  enabled: true
+  tolerance_pct: 0.1               # flag |yf_close - bhav_close| > this
+  abort_scan_if_stale: true        # refuse to scan on stale data
+
+# -------------------------------------------------------------------
+# FEATURES — comment out anything you do not want computed or stored
+# -------------------------------------------------------------------
+features:
+  enabled:
+    - sma10
+    - sma20
+    - sma50
+    - sma100
+    - sma200
+    - sma_slope
+    - sma_shape          # stack alignment + compression
+    - atr14
+    - adr_pct20
+    - rsi14
+    - adx14
+    - supertrend
+    - hma10
+    - hma50
+    - rvol
+    - turnover
+    - delivery
+    - position           # distance from SMA200 / 52w high / 52w low
+    # - bollinger
+    # - macd
+    # - ema
+    - rs_rank            # cross-sectional, runs in pass 2
+
+  params:
+    sma_slope_length: 20
+    atr_length: 14
+    adr_length: 20
+    rsi_length: 14
+    adx_length: 14
+    supertrend_length: 20
+    supertrend_mult: 3.0
+    bb_length: 20
+    bb_mult: 2.0
+    vol_length: 20
+    rs_lookback: 55
+    warmup_discard_bars: 250       # first N bars per symbol are NOT trustworthy
+
+# -------------------------------------------------------------------
+# ANCHORED VWAP
+# -------------------------------------------------------------------
+avwap:
+  enabled: true
+  band_mult: 1.0
+  anchors: ["w_l1", "swing_low", "52w_low", "52w_high"]
+  prune_older_than_days: 730
+
+# -------------------------------------------------------------------
+# W-PATTERN DETECTION
+# -------------------------------------------------------------------
+pattern:
+  zigzag_pct: 5.0                  # a swing low/high is only confirmed once close reverses this % off it
+  min_separation: 10
+  max_separation: 60
+  require_undercut: true           # second low dips below the first (shakeout)
+  min_depth_pct: 3.0
+  exclude_locked_bars: true        # high==low==close creates fake pivots
+  entry_max_wait: 30               # bars allowed for: (a) L1 reclaim after L2 to confirm the W at all,
+                                    # (b) E3/E4/E5's own trigger after that confirmation
+
+# -------------------------------------------------------------------
+# OPTIONAL FILTERS — both default OFF so you can A/B them honestly
+# -------------------------------------------------------------------
+filters:
+  use_relative_strength: false
+  rs_rank_min_pct: 70
+
+  use_regime_filter: false
+  regime_index: "^CRSLDX"
+  regime_mode: "size"              # "size" scales position | "block" skips trade
+
+# -------------------------------------------------------------------
+# SCAN PRESETS — add combinations here, never in Python
+# -------------------------------------------------------------------
+presets:
+
+  # The control. Run this FIRST. Without a baseline number you cannot tell
+  # whether any filter below actually helped.
+  w_naked:
+    timeframe: "1d"
+    pattern: "w_double_bottom"
+    conditions: []
+
+  w_baseline:
+    timeframe: "1d"
+    pattern: "w_double_bottom"
+    conditions:
+      - "adr_pct20 >= 2.5"
+      - "turnover_sma20 >= 50000000"
+
+  w_sma200_trend:
+    inherits: w_baseline
+    conditions_add:
+      - "close > sma200"
+
+  w_sma200_rising:
+    inherits: w_baseline
+    conditions_add:
+      - "close > sma200"
+      - "sma200_slope > 0"
+
+  w_sma50_trend:
+    inherits: w_baseline
+    conditions_add:
+      - "close > sma50"
+
+  w_golden:
+    inherits: w_baseline
+    conditions_add:
+      - "sma50 > sma200"
+
+  w_stacked:
+    inherits: w_baseline
+    conditions_add:
+      - "sma_stack = 'stacked_up'"
+
+  w_delivery:
+    inherits: w_baseline
+    conditions_add:
+      - "deliv_pct_sma20 >= 45"
+
+  w_full:
+    inherits: w_baseline
+    conditions_add:
+      - "close > sma200"
+      - "sma200_slope > 0"
+      - "deliv_pct_sma20 >= 45"
+      - "adx14 >= 20"
+
+# -------------------------------------------------------------------
+# BACKTEST
+# -------------------------------------------------------------------
+backtest:
+  date_from: "2010-01-01"
+  in_sample_end: "2020-12-31"      # tune ONLY on data before this
+  out_sample_start: "2021-01-01"   # look at this ONCE, at the very end
+  min_trades_for_conclusion: 100   # below this you are reading noise
+
+  entry_variants: ["E1", "E2", "E3", "E4", "E5"]
+  exit_variants:  ["X1", "X2", "X3", "X4", "X5", "X6"]
+
+  entry_timing: "next_open"        # signal is computed after close
+  stop_method: "l2_minus_atr"      # l2_minus_atr | pct | atr_mult
+  stop_atr_mult: 0.5
+  stop_pct: 3.0
+  target_pct: 5.0                  # X1
+  target_r: 2.0                    # X2
+  time_stop_bars: 10               # X4 / fallback for all variants
+  trail_sma: 20                    # X4 trail
+  chandelier_atr_mult: 3.0         # X5
+  same_day_stop_and_target: "stop" # daily bars cannot resolve order -> be honest
+  forward_curve_days: 30           # how far to track MFE/MAE per signal
+
+  max_open_positions: 5
+  capital: 1000000
+  risk_per_trade_pct: 1.0
+
+# Round-trip costs. On a 5% target these eat ~6% of the gross gain;
+# on a 2% winner, ~15%. A backtest without them shows an edge that
+# does not survive contact with reality.
+costs:
+  brokerage_pct: 0.0               # Dhan delivery is free
+  stt_buy_pct: 0.1
+  stt_sell_pct: 0.1
+  other_charges_pct: 0.02
+  dp_charge_flat: 20.0             # per sell scrip
+  slippage_pct: 0.15               # be pessimistic
+
+# -------------------------------------------------------------------
+# UI
+# -------------------------------------------------------------------
+ui:
+  rows_per_page: 50
+  chart_lookback_bars: 250
+  theme_accent: "#2F6F62"
