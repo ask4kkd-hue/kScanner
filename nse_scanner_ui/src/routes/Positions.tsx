@@ -12,7 +12,7 @@ function inr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`
 }
 
-export default function Holdings() {
+export default function Positions() {
   const { data: positions } = useOpenPositions()
   const [entryOpen, setEntryOpen] = useState(false)
   const [closeTarget, setCloseTarget] = useState<{ id: number; symbol: string } | null>(null)
@@ -22,7 +22,7 @@ export default function Holdings() {
 
   return (
     <div className="flex flex-col gap-3">
-      <PageTitle text="Holdings" />
+      <PageTitle text="Positions" />
 
       <Button onClick={() => setEntryOpen(true)} className="w-fit">+ New position</Button>
 

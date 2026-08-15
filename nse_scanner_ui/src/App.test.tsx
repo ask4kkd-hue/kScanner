@@ -21,7 +21,8 @@ describe("App shell", () => {
     renderApp()
     expect(screen.getByText("kSCANNER")).toBeInTheDocument()
     for (const label of [
-      "Today", "Scan", "Chart", "Watchlist", "Holdings", "Performance", "Backtest", "Data",
+      "Dashboard", "New Opportunity", "Scans", "Charts", "Positions", "Watchlist",
+      "Performance", "Backtest", "Data",
     ]) {
       expect(screen.getByRole("link", { name: label })).toBeInTheDocument()
     }

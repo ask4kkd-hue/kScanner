@@ -50,6 +50,119 @@
   --status-review: var(--destructive);
 }
 
+/*
+ * Alternate themes, switched via a `data-theme` attribute on <html>
+ * (store/uiPrefs.ts persists the choice, App.tsx applies it). Black
+ * (the :root block above) stays the default — these are opt-in.
+ * Candle up/down and destructive/warning stay close to the trading-
+ * convention red/green/amber across every theme; only the surface,
+ * text, and accent colors actually distinguish them.
+ */
+
+/* Terminal green — Bloomberg/Reuters-style monochrome-on-black */
+:root[data-theme="terminal-green"] {
+  --background: #000000;
+  --foreground: #4ade80;
+  --card: #050805;
+  --card-foreground: #4ade80;
+  --popover: #0a0f0a;
+  --popover-foreground: #4ade80;
+  --primary: #22c55e;
+  --primary-foreground: #000000;
+  --secondary: #143d1f;
+  --secondary-foreground: #4ade80;
+  --muted: #0f1a10;
+  --muted-foreground: #4d7a57;
+  --accent: #143d1f;
+  --accent-foreground: #4ade80;
+  --border: #143d1f;
+  --input: #143d1f;
+  --ring: #22c55e;
+  --warning: #eab308;
+  --ref-line: #2d5c38;
+  --status-hold: var(--primary);
+  --status-watch: var(--warning);
+  --status-review: var(--destructive);
+}
+
+/* Zerodha/Kite-style dark navy-slate with a teal-blue accent */
+:root[data-theme="kite-slate"] {
+  --background: #0e1420;
+  --foreground: #e6e9ef;
+  --card: #131a28;
+  --card-foreground: #e6e9ef;
+  --popover: #131a28;
+  --popover-foreground: #e6e9ef;
+  --primary: #2196a8;
+  --primary-foreground: #e6e9ef;
+  --secondary: #232c3d;
+  --secondary-foreground: #e6e9ef;
+  --muted: #1a2231;
+  --muted-foreground: #8892a6;
+  --accent: #232c3d;
+  --accent-foreground: #e6e9ef;
+  --border: #232c3d;
+  --input: #232c3d;
+  --ring: #2196a8;
+  --warning: #d9a030;
+  --ref-line: #3a4256;
+  --status-hold: var(--primary);
+  --status-watch: var(--warning);
+  --status-review: var(--destructive);
+}
+
+/* High-contrast OLED black — pure #000, brighter accent for max separation */
+:root[data-theme="oled-black"] {
+  --background: #000000;
+  --foreground: #ffffff;
+  --card: #000000;
+  --card-foreground: #ffffff;
+  --popover: #0a0a0a;
+  --popover-foreground: #ffffff;
+  --primary: #3ba594;
+  --primary-foreground: #000000;
+  --secondary: #1a1a1a;
+  --secondary-foreground: #ffffff;
+  --muted: #141414;
+  --muted-foreground: #a3a3a3;
+  --accent: #1a1a1a;
+  --accent-foreground: #ffffff;
+  --border: #1f1f1f;
+  --input: #1f1f1f;
+  --ring: #3ba594;
+  --warning: #eab308;
+  --ref-line: #333333;
+  --status-hold: var(--primary);
+  --status-watch: var(--warning);
+  --status-review: var(--destructive);
+}
+
+/* Slate-blue professional — TradingView-style dark blue-gray */
+:root[data-theme="slate-blue"] {
+  --background: #131722;
+  --foreground: #d1d4dc;
+  --card: #1e222d;
+  --card-foreground: #d1d4dc;
+  --popover: #1e222d;
+  --popover-foreground: #d1d4dc;
+  --primary: #2962ff;
+  --primary-foreground: #ffffff;
+  --secondary: #2a2e39;
+  --secondary-foreground: #d1d4dc;
+  --muted: #1a1e27;
+  --muted-foreground: #787b86;
+  --accent: #2a2e39;
+  --accent-foreground: #d1d4dc;
+  --border: #2a2e39;
+  --input: #2a2e39;
+  --ring: #2962ff;
+  --warning: #d9a030;
+  --ref-line: #363a45;
+  --status-hold: var(--primary);
+  --status-watch: var(--warning);
+  --status-review: var(--destructive);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

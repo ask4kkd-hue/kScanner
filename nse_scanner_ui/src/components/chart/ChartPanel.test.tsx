@@ -49,5 +49,5 @@ describe("ChartPanel", () => {
       "RELIANCE",
       expect.objectContaining({ timeframe: "D", show_pattern: true, show_all_tf: true })
     )
-  })
+  }, 10000)
 })

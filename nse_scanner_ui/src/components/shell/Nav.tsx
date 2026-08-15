@@ -5,8 +5,9 @@ import {
   Database,
   Eye,
   FlaskConical,
+  LayoutDashboard,
   Search,
-  SunMedium,
+  Sparkles,
   TrendingUp,
   Wallet,
 } from "lucide-react"
@@ -17,11 +18,12 @@ import { cn } from "@/lib/utils"
 import { useUiPrefs } from "@/store/uiPrefs"
 
 const ITEMS = [
-  { to: "/", label: "Today", icon: SunMedium, end: true },
-  { to: "/scan", label: "Scan", icon: Search },
-  { to: "/chart", label: "Chart", icon: CandlestickChart },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/new-opportunity", label: "New Opportunity", icon: Sparkles },
+  { to: "/scan", label: "Scans", icon: Search },
+  { to: "/chart", label: "Charts", icon: CandlestickChart },
+  { to: "/positions", label: "Positions", icon: Wallet },
   { to: "/watchlist", label: "Watchlist", icon: Eye },
-  { to: "/holdings", label: "Holdings", icon: Wallet },
   { to: "/performance", label: "Performance", icon: TrendingUp },
   { to: "/backtest", label: "Backtest", icon: FlaskConical },
   { to: "/data", label: "Data", icon: Database },

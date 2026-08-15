@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { MoreVertical, RefreshCw } from "lucide-react"
+import { MoreVertical, Palette, RefreshCw } from "lucide-react"
 import { useRef, useState } from "react"
 import { toast } from "sonner"
 
@@ -11,8 +11,10 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { exportsApi } from "@/api/exports"
 import { jobsApi } from "@/api/jobs"
+import { THEME_LABELS, type Theme, useUiPrefs } from "@/store/uiPrefs"
 
 type RefreshEvent = { step: string | null; status: "running" | "done" | "error" | "complete"; detail?: string }
 
@@ -20,6 +22,7 @@ export function Header() {
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState(false)
   const esRef = useRef<EventSource | null>(null)
+  const { theme, setTheme } = useUiPrefs()
 
   const refetchHealth = () => {
     queryClient.invalidateQueries({ queryKey: ["data", "table-counts"] })
@@ -94,6 +97,17 @@ export function Header() {
     <header className="flex h-12 items-center justify-between border-b border-border bg-card px-3">
       <span className="text-sm font-bold tracking-wide">kSCANNER</span>
       <div className="flex items-center gap-1">
+        <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+          <SelectTrigger className="h-8 w-[168px] text-xs" title="Theme">
+            <Palette className="size-3.5" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {(Object.entries(THEME_LABELS) as [Theme, string][]).map(([value, label]) => (
+              <SelectItem key={value} value={value}>{label}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <Button size="sm" onClick={handleRefresh} disabled={busy}>
           <RefreshCw className="size-3.5" />
           Refresh

@@ -1,11 +1,9 @@
 import type { ColumnDef } from "@tanstack/react-table"
 import { useEffect, useState } from "react"
-import {
-  CartesianGrid, Line, ComposedChart, ResponsiveContainer, Tooltip, XAxis, YAxis, Area,
-} from "recharts"
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { DataTable } from "@/components/ui/data-table"
+import { EquityDrawdownChart } from "@/components/ui/equity-drawdown-chart"
 import { PageTitle } from "@/components/ui/section"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -55,29 +53,6 @@ function attributionColumns(dimKey: string, dimLabel: string): ColumnDef<Attribu
     { accessorKey: "avg_r", header: "Avg R", cell: ({ getValue }) => num(getValue() as number) },
     { accessorKey: "net_pnl", header: "Net P&L", cell: ({ getValue }) => inr(getValue() as number) },
   ]
-}
-
-function EquityAndDrawdown({ data }: { data: { exit_date: string; cum_pnl: number; drawdown: number }[] }) {
-  if (data.length === 0) return <p className="text-muted-foreground text-sm">No closed trades yet.</p>
-  return (
-    <ResponsiveContainer width="100%" height={280}>
-      <ComposedChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" />
-        <XAxis dataKey="exit_date" tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }} />
-        <YAxis tick={{ fill: "var(--color-muted-foreground)", fontSize: 11 }} />
-        <Tooltip
-          contentStyle={{
-            background: "var(--color-card)", border: "1px solid var(--color-border)", fontSize: 12,
-          }}
-        />
-        <Area
-          type="monotone" dataKey="drawdown" stroke="none"
-          fill="var(--color-destructive)" fillOpacity={0.15}
-        />
-        <Line type="monotone" dataKey="cum_pnl" stroke="var(--color-primary)" strokeWidth={2} dot={false} name="Cumulative P&L" />
-      </ComposedChart>
-    </ResponsiveContainer>
-  )
 }
 
 export default function Performance() {
@@ -142,7 +117,7 @@ export default function Performance() {
           <Card>
             <CardHeader><CardTitle>Equity curve &amp; drawdown</CardTitle></CardHeader>
             <CardContent>
-              <EquityAndDrawdown data={equity.data ?? []} />
+              <EquityDrawdownChart data={equity.data ?? []} />
             </CardContent>
           </Card>
         </TabsContent>

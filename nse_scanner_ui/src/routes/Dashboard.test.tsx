@@ -2,15 +2,25 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
-import { describe, expect, it, vi } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { ChartDrawer } from "@/components/chart/ChartDrawer"
 import { todayApi, type TodayResponse } from "@/api/today"
-import Today from "./Today"
+import { performanceApi } from "@/api/performance"
+import { useChartDrawer } from "@/store/chartDrawer"
+import Dashboard from "./Dashboard"
 
 vi.mock("@/api/today", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/today")>()),
   todayApi: { get: vi.fn() },
+}))
+vi.mock("@/api/performance", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/api/performance")>()),
+  performanceApi: {
+    ...((await importOriginal<typeof import("@/api/performance")>()).performanceApi),
+    summary: vi.fn(),
+    equityCurve: vi.fn(),
+  },
 }))
 
 const FIXTURE: TodayResponse = {
@@ -30,48 +40,58 @@ const FIXTURE: TodayResponse = {
   watchlist_near_trigger: [],
 }
 
-function renderToday() {
+function renderDashboard() {
+  vi.mocked(todayApi.get).mockResolvedValue(FIXTURE)
+  vi.mocked(performanceApi.summary).mockResolvedValue({
+    trades: 10, win_rate: 60, expectancy_r: 0.4, profit_factor: 1.5, net_pnl: 3250,
+    min_trades_for_conclusion: 100, thin: true,
+  })
+  vi.mocked(performanceApi.equityCurve).mockResolvedValue([{ exit_date: "2026-08-01", cum_pnl: 1000, drawdown: 0 }])
+
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
       <MemoryRouter>
-        <Today />
+        <Dashboard />
         <ChartDrawer />
       </MemoryRouter>
     </QueryClientProvider>
   )
 }
 
-describe("Today screen", () => {
-  it("renders positions, the default (1D) opportunity tab, and pnl from the API", async () => {
-    vi.mocked(todayApi.get).mockResolvedValue(FIXTURE)
-    renderToday()
-
-    expect(await screen.findByText("RELIANCE")).toBeInTheDocument()
-    expect(screen.getByText("TCS")).toBeInTheDocument()
-    expect(screen.getByText("Total open P&L: ₹3,250")).toBeInTheDocument()
+describe("Dashboard screen", () => {
+  beforeEach(() => {
+    // The chart drawer is a module-level zustand store, not React state — it
+    // survives across separate render()s within this file, so a symbol left
+    // open by one test would otherwise leak into the next (Radix marks the
+    // rest of the page aria-hidden while its dialog is open, hiding content
+    // from every later accessibility-role query in this describe block).
+    useChartDrawer.getState().close()
   })
 
-  it("switching the opportunities tab reveals that timeframe's content", async () => {
-    vi.mocked(todayApi.get).mockResolvedValue(FIXTURE)
-    const user = userEvent.setup()
-    renderToday()
 
-    await screen.findByText("TCS") // 1D tab content, active by default
-    expect(screen.queryByText("Not built yet — run features.py for 1w")).not.toBeInTheDocument()
-
-    await user.click(screen.getByRole("tab", { name: /Medium term \(1W\)/ }))
-    expect(await screen.findByText("Not built yet — run features.py for 1w")).toBeInTheDocument()
+  it("renders positions and P&L stat tiles from the API", async () => {
+    renderDashboard()
+    expect(await screen.findByText("RELIANCE")).toBeInTheDocument()
+    expect(screen.getByText("₹3,250")).toBeInTheDocument()
   })
 
   it("clicking a symbol opens the chart drawer with that symbol", async () => {
-    vi.mocked(todayApi.get).mockResolvedValue(FIXTURE)
     const user = userEvent.setup()
-    renderToday()
+    renderDashboard()
 
     const symbolButton = await screen.findByRole("button", { name: "RELIANCE" })
     await user.click(symbolButton)
 
     expect(await screen.findByRole("heading", { name: "RELIANCE" })).toBeInTheDocument()
+  })
+
+  it("switching to the opportunities tab previews new signals", async () => {
+    const user = userEvent.setup()
+    renderDashboard()
+
+    await screen.findByText("RELIANCE")
+    await user.click(screen.getByRole("tab", { name: /New Opportunities/ }))
+    expect(await screen.findByText("TCS")).toBeInTheDocument()
   })
 })

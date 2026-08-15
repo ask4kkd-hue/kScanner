@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { holdingsApi } from "@/api/holdings"
-import Holdings from "./Holdings"
+import Positions from "./Positions"
 
 vi.mock("@/api/holdings", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/api/holdings")>()),
@@ -27,16 +27,16 @@ vi.mock("@/api/chart", async (importOriginal) => ({
   chartApi: { ...((await importOriginal<typeof import("@/api/chart")>()).chartApi), symbols: vi.fn().mockResolvedValue(["RELIANCE", "TCS"]) },
 }))
 
-function renderHoldings() {
+function renderPositions() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
-    <QueryClientProvider client={client}><Holdings /></QueryClientProvider>
+    <QueryClientProvider client={client}><Positions /></QueryClientProvider>
   )
 }
 
-describe("Holdings screen", () => {
+describe("Positions screen", () => {
   it("renders the open position with pnl, R-multiple, and advisor reasons", async () => {
-    renderHoldings()
+    renderPositions()
     expect(await screen.findByText("RELIANCE")).toBeInTheDocument()
     expect(screen.getByText("₹300")).toBeInTheDocument()
     expect(screen.getByText("0.60R")).toBeInTheDocument()
@@ -45,7 +45,7 @@ describe("Holdings screen", () => {
 
   it("clicking close opens the close dialog and submits the right payload", async () => {
     const user = userEvent.setup()
-    renderHoldings()
+    renderPositions()
     await screen.findByText("RELIANCE")
 
     await user.click(screen.getByRole("button", { name: "×" }))
