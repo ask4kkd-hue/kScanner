@@ -87,22 +87,44 @@ def _active_pattern(bars_df: pd.DataFrame):
 
 
 def _level_overlay_pair(tf_bars: pd.DataFrame, pos: int, price: float, label: str,
-                        color: str | None = None) -> list[dict]:
+                        color: str | None = None, line_style: str | None = None,
+                        line_width: int | None = None) -> list[dict]:
+    """
+    One overlay per L1/L2/neckline level: klinecharts' built-in "simpleTag" —
+    a horizontal line at the price, with its text rendered in the Y-axis
+    gutter (right-aligned, at the line's height), never on the plot itself.
+
+    Previously this was a ["priceLine", "simpleAnnotation"] pair. Both of
+    those anchor their text AT the specific (bar, price) point — priceLine's
+    price label sits directly on that coordinate, simpleAnnotation's text
+    floats a fixed 50px above it — so on a compressed or choppy price range
+    the text routinely lands on top of an unrelated candle. simpleTag draws
+    the same reference line but places its text off the plot entirely.
+    """
     ts = int(pd.Timestamp(tf_bars["date"].iloc[pos]).timestamp() * 1000)
     point = {"timestamp": ts, "value": price}
-    styles = {"line": {"color": color}, "text": {"color": color}} if color else {}
-    return [
-        {"name": "priceLine", "points": [point], "extendData": label,
-         "lock": True, "styles": {"line": {"color": color}} if color else {}},
-        {"name": "simpleAnnotation", "points": [point], "extendData": label,
-         "lock": True, "styles": styles},
-    ]
+    line_styles: dict = {}
+    if color:
+        line_styles["color"] = color
+    if line_style:
+        line_styles["style"] = line_style
+    if line_width:
+        line_styles["size"] = line_width
+    styles: dict = {}
+    if line_styles:
+        styles["line"] = line_styles
+    if color:
+        styles["text"] = {"color": color}
+    return [{"name": "simpleTag", "points": [point], "extendData": label,
+            "lock": True, "styles": styles}]
 
 
 def get_chart(
     con, symbol: str, tf: str = "D", bars: int = 250, chart_type: str = "Candle",
     overlays: list[str] | None = None, avwap: str = "(none)",
     show_pattern: bool = True, show_all_tf: bool = True,
+    l1l2_color: str | None = None, l1l2_line_style: str | None = None,
+    l1l2_line_width: int | None = None,
 ) -> dict:
     isin = isin_for(con, symbol)
     if not isin:
@@ -171,15 +193,20 @@ def get_chart(
             tf_active = active if label_tf == tf else _active_pattern(tf_bars.reset_index(drop=True))
             if not tf_active:
                 continue
+            # D/W/M-together mode uses color to tell the three timeframes'
+            # markers apart, so a user color override doesn't apply here —
+            # line style/width aren't load-bearing the same way and still do.
             color = TF_MARKER_COLOR[label_tf]
             for lvl, price, pos in (("L1", tf_active.l1_price, tf_active.l1_pos),
                                     ("L2", tf_active.l2_price, tf_active.l2_pos)):
-                server_overlays.extend(_level_overlay_pair(tf_bars, pos, price, f"{label_tf}-{lvl}", color))
+                server_overlays.extend(_level_overlay_pair(
+                    tf_bars, pos, price, f"{label_tf}-{lvl}", color, l1l2_line_style, l1l2_line_width))
     elif show_pattern and active:
         for label, price, pos in (("L1", active.l1_price, active.l1_pos),
                                   ("L2", active.l2_price, active.l2_pos),
                                   ("neckline", active.neckline, active.neckline_pos)):
-            server_overlays.extend(_level_overlay_pair(pattern_bars_df, pos, price, label))
+            server_overlays.extend(_level_overlay_pair(
+                pattern_bars_df, pos, price, label, l1l2_color, l1l2_line_style, l1l2_line_width))
 
     if avwap != "(none)" and "vwap" in bars_df.columns:
         lookback = 252 if tf == "D" else 52

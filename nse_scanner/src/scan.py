@@ -93,6 +93,14 @@ def load_symbol_frame_tf(con, isin: str, date_to: date, timeframe: str = "1d",
     return bars_df.merge(feats, on="date", how="left").sort_values("date").reset_index(drop=True)
 
 
+def current_as_of(con) -> date:
+    """The same date scan()'s own `as_of = as_of or MAX(bars_1d.date)` resolves to,
+    exposed so callers (the scan-result cache) can key on it without duplicating
+    that resolution logic and risking the two drifting apart."""
+    d = con.execute("SELECT MAX(date) FROM bars_1d").fetchone()[0]
+    return pd.to_datetime(d).date() if isinstance(d, str) else d
+
+
 def regime_state(con, as_of: date) -> str:
     """
     Index vs its 200 DMA. Applied only when filters.use_regime_filter is on —

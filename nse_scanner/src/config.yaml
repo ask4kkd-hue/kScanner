@@ -124,6 +124,15 @@ filters:
   regime_index: "^CRSLDX"
   regime_mode: "size"              # "size" scales position | "block" skips trade
 
+# Scans the backend runs once at startup, in the background (doesn't delay
+# the app becoming available), writing straight into the same persisted
+# scan-result cache a manual "Run scan" reads from. Add the ones you reach
+# for often so they're already instant the first time you open Scan, not
+# just on the second run of a session. Each is a full-universe pattern
+# scan (~1-2 min on 1d, longer on 1w/1m), so keep this list short.
+startup_warm_scans:
+  - {preset: w_naked, timeframe: "1d"}
+
 # -------------------------------------------------------------------
 # SCAN PRESETS — add combinations here, never in Python
 # -------------------------------------------------------------------

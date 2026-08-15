@@ -29,6 +29,8 @@ export interface ChartResponse {
   user_drawings: OverlayPayload[]
 }
 
+export type L1L2LineStyle = "solid" | "dashed" | "dotted"
+
 export interface ChartQuery {
   timeframe?: "D" | "W" | "M"
   bars?: number
@@ -37,6 +39,9 @@ export interface ChartQuery {
   avwap?: string
   show_pattern?: boolean
   show_all_tf?: boolean
+  l1l2_color?: string
+  l1l2_line_style?: L1L2LineStyle
+  l1l2_line_width?: number
 }
 
 export const chartApi = {
@@ -51,6 +56,9 @@ export const chartApi = {
     if (q.avwap) params.set("avwap", q.avwap)
     if (q.show_pattern !== undefined) params.set("show_pattern", String(q.show_pattern))
     if (q.show_all_tf !== undefined) params.set("show_all_tf", String(q.show_all_tf))
+    if (q.l1l2_color) params.set("l1l2_color", q.l1l2_color)
+    if (q.l1l2_line_style) params.set("l1l2_line_style", q.l1l2_line_style)
+    if (q.l1l2_line_width) params.set("l1l2_line_width", String(q.l1l2_line_width))
     return api.get<ChartResponse>(`/api/chart/${encodeURIComponent(symbol)}?${params}`)
   },
 

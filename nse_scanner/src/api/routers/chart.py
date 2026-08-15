@@ -28,6 +28,9 @@ def get_chart(
     avwap: str = "(none)",
     show_pattern: bool = True,
     show_all_tf: bool = True,
+    l1l2_color: str | None = None,
+    l1l2_line_style: str | None = None,
+    l1l2_line_width: int | None = None,
     cur=Depends(get_cursor),
 ) -> dict:
     overlay_list = [o for o in overlays.split(",") if o]
@@ -35,6 +38,7 @@ def get_chart(
         return chart_service.get_chart(
             cur, symbol, tf=timeframe, bars=bars, chart_type=chart_type,
             overlays=overlay_list, avwap=avwap, show_pattern=show_pattern, show_all_tf=show_all_tf,
+            l1l2_color=l1l2_color, l1l2_line_style=l1l2_line_style, l1l2_line_width=l1l2_line_width,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

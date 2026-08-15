@@ -293,6 +293,79 @@ Required — the feature version changes, and mixing versions inside one backtes
 
 ---
 
+## Using the Scan screen
+
+The Scan screen (left nav) is the day-to-day way to find candidates — the CLI (`scan.py`, Part 4/5) is for the backtest study, this is for "what looks tradeable right now." It scans the whole universe once and lets you slice the result instantly with chips, rather than re-scanning per filter change.
+
+**Controls:**
+
+| Control | What it does |
+|---|---|
+| **Preset** | Which `config.yaml` preset's conditions to apply (`w_naked`, `w_baseline`, `w_sma200_trend`, …) plus the hard tradability filters (EQ series, ASM/GSM excluded, minimum liquidity) that always apply regardless of preset. |
+| **D / W / M** | Scan daily, weekly, or monthly bars — same pattern code, resampled bars (see `resample.py`), against `features_1d`/`features_1w`/`features_1m` respectively. A preset that checks `sma200` will find fewer monthly signals for younger symbols — see Pending Features. |
+| **Run scan** | Runs pattern detection across the full universe once, at that preset+timeframe. The result is cached — a preset+timeframe already scanned earlier the same trading day comes back instantly instead of re-scanning (see `scan_result_cache` below). |
+| **Filter chips** | Toggle on/off, filtered against the SAME cached result in-memory — no re-scan per click. Each chip mirrors a real preset condition (e.g. `above_sma200` ↔ `close > sma200`), so running a preset auto-selects the matching chips. |
+| **Save these chips as a preset** | Writes your current active chip conditions to `config.yaml`'s `presets:` block under a name you choose (letters/numbers/underscore only) — the same file Part 5 describes editing by hand. |
+
+**Filter chips available:**
+
+| Chip | Condition | Notes |
+|---|---|---|
+| Close > SMA200 / SMA50 | `close > sma200` / `close > sma50` | Trend filters |
+| SMA200 rising | `sma200_slope > 0` | Long-term trend still rising, not just above |
+| SMAs stacked up | `sma_stack = 'stacked_up'` | 10>20>50>100>200 in order |
+| Bottom at SMA200 | `bottom_at_sma = 'at_sma200'` | Where the pattern's L2 formed relative to major SMAs |
+| RSI > / RSI < | `rsi14 > N` / `rsi14 < N` | Adjustable threshold |
+| ADX > | `adx14 > N` | Trend strength |
+| ADR% > | `adr_pct20 > N` | Average daily range — volatility floor |
+| Delivery% > | `deliv_pct_sma20 > N` | Real buying, not just churn |
+| Turnover ≥ ₹cr | `turnover_sma20 > N*1cr` | Liquidity floor |
+| RS rank > | `rs_rank_pct > N` | Relative strength vs the benchmark, percentile |
+| RVOL > | `rvol > N` | Relative volume vs its own recent average |
+
+**Why re-scanning the same thing is now instant:** every "Run scan" result is saved to a `scan_result_cache` table keyed by (preset, timeframe, trading day) — a re-run of the same combination later the same day is a cache hit, not a fresh universe scan. The backend also pre-warms `config.yaml`'s `startup_warm_scans` list in the background when it starts, so the presets you use most are often already cached before you ask. On this reference machine a full-universe daily scan takes roughly 1–2 minutes; because that work competes with the app's own request handling for CPU time (a known Python threading trade-off, not a bug), the very first warm-up after a fresh start can take noticeably longer than a scan you trigger yourself — it still finishes in the background without blocking the app either way.
+
+---
+
+## Using the Backtest screen
+
+The Backtest screen has its own in-app "How to backtest" explanation (expand it at the top of the screen) covering the same ground as this section — this is the reference copy.
+
+A backtest replays the exact W-pattern detector the Scan screen uses against history, applies an **entry rule** (when to buy) and an **exit rule** (when to sell), and reports what would have happened.
+
+**Entry rules** (`patterns.py::find_entry_trigger`):
+
+| Rule | Fires when |
+|---|---|
+| E1 | Next bar after the W confirms — earliest, most trades, most failures |
+| E2 | Close above L1 (the "reclaim" rule) — shakeout confirmed. **Default, best-tested.** |
+| E3 | Close above the neckline — latest, best win rate, worst reward:risk |
+| E4 | Close above SMA20 — momentum confirmation |
+| E5 | Close above an anchored VWAP from L1 |
+
+**Exit rules** (`backtest.py::simulate_exit`):
+
+| Rule | Behavior |
+|---|---|
+| X1 | Fixed % target (`backtest.target_pct`) |
+| X2 | R-multiple target — a fixed multiple of initial risk (`backtest.target_r`) |
+| X3 | Measured move — neckline + (neckline − L2), the classic W-pattern target |
+| X4 | Trail below a moving average (`backtest.trail_sma`) |
+| X5 | ATR chandelier trail — trails a multiple of ATR below the running high |
+| X6 | Pure time stop — exits after `backtest.time_stop_bars`, no price target |
+
+**The three run modes, and the recommended order:**
+
+1. **Single run, preset `w_naked`** — no filters at all. This is the control. Without this baseline you cannot tell whether any filter helps or just looks good.
+2. Check the **trade count** shown after any run — below `backtest.min_trades_for_conclusion` (100), treat the result as noise, not a conclusion.
+3. **Sweep** a preset — runs all 5 entry × 6 exit combinations (30 backtests), sorted by expectancy, trade count included so a lucky small sample doesn't fool you.
+4. **Marginal contribution** — runs the baseline plus each SMA/volume filter preset with the same entry/exit, showing the delta vs baseline. A filter that lifts expectancy but guts trade count has found a coincidence, not an edge.
+5. **Out-of-sample, once** — only after you've settled on a preset/entry/exit using in-sample data (`backtest.in_sample_end` and later). Checking it more than once and adjusting turns it back into in-sample tuning wearing a disguise.
+
+**Other fields:** **Sample** picks in-sample vs out-of-sample date ranges (`backtest.in_sample_end`/`out_sample_start` in `config.yaml`). **Limit symbols** caps how many universe symbols are scanned, purely to get a fast trial run while checking a setup works — drop it for a real read.
+
+---
+
 ## Part 6 — Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -322,8 +395,7 @@ The bar at the top of the app is the first thing on screen on purpose.
 
 Known gaps, not yet built:
 
-- **Weekly/monthly scanning** — `features_1w`/`features_1m` are now populated (`features.py --timeframe {1w,1m}`, or `--timeframe all`; `run_weekly.bat` does this automatically), but `scan.py` itself still only ever writes `signals_1d` rows with `timeframe='1d'`. The Chart screen's W-pattern detection already runs live on each timeframe's own resampled bars regardless, but there is no persisted weekly/monthly scan yet — the Today screen's medium/long-term opportunity blocks will keep saying "No signals from the last scan" until that's built.
-- `features_1m` will stay sparse or empty for most symbols even after a rebuild — its warm-up margin is 250 *monthly* bars (~20 years), the same bar-count safety rule daily features use, applied honestly rather than shortened for convenience. Symbols without decades of daily history simply won't clear it yet.
+- `features_1m` will stay sparse or empty for most symbols even after a rebuild — its warm-up margin is 250 *monthly* bars (~20 years), the same bar-count safety rule daily features use, applied honestly rather than shortened for convenience. Symbols without decades of daily history simply won't clear it yet — so a monthly scan or backtest preset that checks `sma200` will legitimately find little to nothing for younger symbols.
 - Weekly/monthly features don't get a relative-strength rank (`rs_rank_pct` stays NULL there) — cross-sectional ranking needs a benchmark series and lookback tuned per timeframe, not yet built.
 
 ---

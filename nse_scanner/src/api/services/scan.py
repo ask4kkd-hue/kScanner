@@ -13,7 +13,7 @@ import pandas as pd
 
 from backtest import _eval_condition
 from config import CFG, resolve_preset, save_preset as _save_preset
-from scan import scan as run_scan_fn
+from scan import current_as_of, scan as run_scan_fn
 
 from api.services import scan_cache
 
@@ -48,10 +48,21 @@ def preselected_chip_ids(preset_name: str) -> list[str]:
 def run_scan(con, preset_name: str, timeframe: str = "1d") -> tuple[str, int]:
     """Raises RuntimeError if the stale-data guard trips (ignore_stale=True here,
     same as the NiceGUI original — the Scan screen is a deliberate manual action,
-    not the <2s Today landing page, so the guard doesn't need to block it)."""
+    not the <2s Today landing page, so the guard doesn't need to block it).
+
+    Checks the persisted cache first (same preset+timeframe already scanned
+    for today) before paying for a full-universe pattern scan again — a
+    re-scan of the same thing on the same day returns instantly instead of
+    re-running pattern detection across ~2400 symbols.
+    """
+    as_of = current_as_of(con)
+    cached = scan_cache.get_persisted(con, preset_name, timeframe, as_of)
+    if cached is not None:
+        return scan_cache.store(cached), len(cached)
+
     df = run_scan_fn(con, preset_name, ignore_stale=True, apply_preset=False, timeframe=timeframe)
-    scan_id = scan_cache.store(df)
-    return scan_id, len(df)
+    scan_cache.store_persisted(con, preset_name, timeframe, as_of, df)
+    return scan_cache.store(df), len(df)
 
 
 def filter_scan(scan_id: str, chips: dict[str, dict]) -> dict | None:

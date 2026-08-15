@@ -269,6 +269,26 @@ CREATE TABLE IF NOT EXISTS signals_1d (
     PRIMARY KEY (scan_date, isin, preset_name, timeframe)
 );
 
+-- The Scan screen's "Run scan" is expensive (pattern detection across the
+-- whole universe, every feature column attached for chip filtering) and
+-- the same (preset, timeframe) combo is commonly re-run on the same
+-- trading day. This persists that result across app restarts, keyed by
+-- the day it was computed for -- once a new trading day arrives the key
+-- no longer matches and the scan runs fresh automatically, no separate
+-- invalidation logic needed. Distinct from signals_1d (the CLI's daily-
+-- persisted, apply_preset=True signal list): this holds the UI's
+-- exploratory, apply_preset=False superset with every feature column,
+-- as a single JSON blob per row since that column set isn't fixed.
+CREATE TABLE IF NOT EXISTS scan_result_cache (
+    preset_name VARCHAR,
+    timeframe   VARCHAR,
+    scan_date   DATE,
+    payload     VARCHAR,   -- JSON, records-orient (scan()'s output DataFrame)
+    row_count   INTEGER,
+    created_at  TIMESTAMP,
+    PRIMARY KEY (preset_name, timeframe, scan_date)
+);
+
 -- ===================================================================
 -- OPERATIONAL LOGS
 -- ===================================================================

@@ -11,7 +11,9 @@ needs to run.
 
 from __future__ import annotations
 
+import logging
 import sys
+import threading
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parent.parent
@@ -23,10 +25,46 @@ from contextlib import asynccontextmanager  # noqa: E402
 from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
+from config import CFG  # noqa: E402
 from api.deps import get_master  # noqa: E402
 from api.routers import (  # noqa: E402
     backtest, chart, data, exports, holdings, jobs, performance, refresh, scan, today, watchlist,
 )
+
+log = logging.getLogger("api.main")
+
+
+def _run_startup_warm_scans() -> None:
+    """Background thread: pre-compute the configured scans into scan_result_cache
+    (config.yaml's startup_warm_scans) so opening Scan for one of them is instant
+    on the first try, not just the second. Runs on its own cursor, same concurrency
+    pattern as every other background op in this app (api/jobs.py, refresh SSE).
+
+    A CPU-heavy loop (pattern detection across ~2400 symbols, mostly pure-Python/
+    pandas work, not I/O) sharing the GIL with uvicorn's asyncio loop measured
+    ~8-10x slower here than the identical call in a standalone script (88s solo
+    vs 12+ min threaded on this machine) — Python's default 5ms GIL switch
+    interval starves a background thread badly against an event loop that keeps
+    waking up. Lowering it fixes exactly this known pattern (CPython docs,
+    threading + asyncio contention) without touching the scan code itself.
+    """
+    import time
+    prev_interval = sys.getswitchinterval()
+    sys.setswitchinterval(0.0005)
+    t0 = time.monotonic()
+    try:
+        from api.services.scan import run_scan
+        cur = get_master().cursor()
+        for w in CFG.get("startup_warm_scans", []):
+            preset, timeframe = w["preset"], w.get("timeframe", "1d")
+            try:
+                _, n = run_scan(cur, preset, timeframe)
+                log.info("Startup warm-scan %s/%s -> %d signals (%.1fs)",
+                         preset, timeframe, n, time.monotonic() - t0)
+            except Exception:
+                log.exception("Startup warm-scan failed for %s/%s", preset, timeframe)
+    finally:
+        sys.setswitchinterval(prev_interval)
 
 
 @asynccontextmanager
@@ -38,6 +76,7 @@ async def _lifespan(_app: FastAPI):
     # (not also lazily inside get_master(), which would risk a second
     # connect() attempt racing this one on the single-writer DB file).
     get_master()
+    threading.Thread(target=_run_startup_warm_scans, daemon=True).start()
     yield
 
 
