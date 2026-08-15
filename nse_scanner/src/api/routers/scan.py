@@ -32,12 +32,13 @@ def get_preselect(name: str) -> list[str]:
 
 class RunScanRequest(BaseModel):
     preset_name: str
+    timeframe: str = Field(default="1d", pattern=r"^(1d|1w|1m)$")
 
 
 @router.post("/run", response_model=ScanRunResponse)
 def post_run(body: RunScanRequest, cur=Depends(get_cursor)) -> dict:
     try:
-        scan_id, total = scan_service.run_scan(cur, body.preset_name)
+        scan_id, total = scan_service.run_scan(cur, body.preset_name, body.timeframe)
     except RuntimeError as e:
         # The stale-data guard, or an unknown preset — both are the caller's
         # problem to fix (refresh the data, or pick a real preset), not a

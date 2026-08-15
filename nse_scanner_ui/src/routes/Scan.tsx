@@ -18,6 +18,7 @@ import { useAddToWatchlist } from "@/queries/watchlist"
 import { useFilterChips, usePresets, useRunScan, useSavePreset, useScanFilter } from "@/queries/scan"
 
 const PRESET_NAME_RE = /^[a-zA-Z_][a-zA-Z0-9_]*$/
+const TIMEFRAMES = { D: "1d", W: "1w", M: "1m" } as const
 
 export default function Scan() {
   const chipsQuery = useFilterChips()
@@ -28,6 +29,7 @@ export default function Scan() {
   const openChart = useOpenChart()
 
   const [preset, setPreset] = useState<string>("")
+  const [timeframe, setTimeframe] = useState<keyof typeof TIMEFRAMES>("D")
   const [scanId, setScanId] = useState<string | null>(null)
   const [chipState, setChipState] = useState<Record<string, ChipState>>({})
   const [saveDialogOpen, setSaveDialogOpen] = useState(false)
@@ -51,7 +53,7 @@ export default function Scan() {
 
   const handleRunScan = () => {
     if (!preset) return
-    runScan.mutate(preset, {
+    runScan.mutate({ presetName: preset, timeframe: TIMEFRAMES[timeframe] }, {
       onSuccess: (result) => {
         setScanId(result.scan_id)
         applyPreselect(result.preselected_chip_ids)
@@ -128,6 +130,16 @@ export default function Scan() {
             {(presetsQuery.data ?? []).map((p) => <SelectItem key={p} value={p}>{p}</SelectItem>)}
           </SelectContent>
         </Select>
+        <div className="flex gap-0.5 rounded-md border border-border p-0.5">
+          {(["D", "W", "M"] as const).map((tf) => (
+            <Button
+              key={tf} size="sm" variant={timeframe === tf ? "default" : "ghost"}
+              className="h-7 w-8 px-0" onClick={() => setTimeframe(tf)}
+            >
+              {tf}
+            </Button>
+          ))}
+        </div>
         <Button onClick={handleRunScan} disabled={runScan.isPending || !preset}>
           {runScan.isPending ? "Running…" : "Run scan"}
         </Button>

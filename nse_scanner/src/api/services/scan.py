@@ -45,11 +45,11 @@ def preselected_chip_ids(preset_name: str) -> list[str]:
     return [c["id"] for c in CHIPS if _chip_column(c["expr"]) in cond_cols]
 
 
-def run_scan(con, preset_name: str) -> tuple[str, int]:
+def run_scan(con, preset_name: str, timeframe: str = "1d") -> tuple[str, int]:
     """Raises RuntimeError if the stale-data guard trips (ignore_stale=True here,
     same as the NiceGUI original — the Scan screen is a deliberate manual action,
     not the <2s Today landing page, so the guard doesn't need to block it)."""
-    df = run_scan_fn(con, preset_name, ignore_stale=True, apply_preset=False)
+    df = run_scan_fn(con, preset_name, ignore_stale=True, apply_preset=False, timeframe=timeframe)
     scan_id = scan_cache.store(df)
     return scan_id, len(df)
 

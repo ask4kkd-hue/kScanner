@@ -188,6 +188,30 @@ check("filtering can only narrow the result, never widen it",
 r = client.post("/api/scan/does-not-exist/filter", json={"chips": {}})
 check("unknown scan_id -> 404", r.status_code == 404, r.text)
 
+# Weekly/monthly scanning — same pattern code, resampled bars (scan.py's
+# load_symbol_frame_tf), against features_1w/features_1m rather than
+# features_1d. Real run against the real DB, not mocked, since the whole
+# point is proving the resample-date-vs-features-date join actually lines up.
+for tf in ("1w", "1m"):
+    r = client.post("/api/scan/run", json={"preset_name": test_preset, "timeframe": tf})
+    check(f"POST /api/scan/run (timeframe={tf}) -> 200", r.status_code == 200, r.text)
+    tf_run_body = r.json()
+    check(f"timeframe={tf} scan_id is a non-empty string",
+         isinstance(tf_run_body.get("scan_id"), str) and len(tf_run_body["scan_id"]) > 0, r.text)
+
+    tf_scan_id = tf_run_body["scan_id"]
+    r = client.post(f"/api/scan/{tf_scan_id}/filter", json={
+        "chips": {c["id"]: {"active": False, "value": c.get("default")} for c in chips}
+    })
+    check(f"timeframe={tf} filter (all chips off) -> 200", r.status_code == 200, r.text)
+    tf_filter_body = r.json()
+    check(f"timeframe={tf} rows, if any, carry l1_price/l2_price",
+         all({"l1_price", "l2_price"} <= set(row.keys()) for row in tf_filter_body["rows"]),
+         str(tf_filter_body["rows"][:1]))
+
+r = client.post("/api/scan/run", json={"preset_name": "this-preset-does-not-exist", "timeframe": "bogus"})
+check("invalid timeframe -> 422 (rejected before reaching scan.py)", r.status_code == 422, r.text)
+
 # Validation happens at the API boundary (Pydantic Field pattern), BEFORE
 # config.save_preset() (a surgical text insert into config.yaml, not a
 # schema-validated writer) ever runs — these must never reach the real

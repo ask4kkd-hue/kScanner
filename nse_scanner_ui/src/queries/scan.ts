@@ -9,7 +9,10 @@ export const usePresets = () =>
   useQuery({ queryKey: ["scan", "presets"], queryFn: scanApi.presets })
 
 export const useRunScan = () =>
-  useMutation({ mutationFn: (presetName: string) => scanApi.run(presetName) })
+  useMutation({
+    mutationFn: ({ presetName, timeframe }: { presetName: string; timeframe: string }) =>
+      scanApi.run(presetName, timeframe),
+  })
 
 export const useScanFilter = (scanId: string | null, chips: Record<string, ChipState>) =>
   useQuery({

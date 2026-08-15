@@ -51,7 +51,7 @@ describe("Scan screen", () => {
     expect(await screen.findByText("RELIANCE")).toBeInTheDocument()
     expect(screen.getByText("TCS")).toBeInTheDocument()
     expect(screen.getByText("2 of 3 signals")).toBeInTheDocument()
-    expect(vi.mocked(scanApi.run)).toHaveBeenCalledWith("w_naked")
+    expect(vi.mocked(scanApi.run)).toHaveBeenCalledWith("w_naked", "1d")
 
     // preselected_chip_ids included "above_sma200" -> the filter call that
     // follows should have actually turned that chip on (the real behavior
@@ -60,6 +60,18 @@ describe("Scan screen", () => {
       const lastCall = vi.mocked(scanApi.filter).mock.calls.at(-1)
       expect(lastCall?.[1].above_sma200?.active).toBe(true)
       expect(lastCall?.[1].rsi_above?.active).toBe(false)
+    })
+  }, 10000)
+
+  it("selecting a timeframe passes it through to the run-scan call", async () => {
+    const user = userEvent.setup()
+    renderScan()
+
+    await user.click(screen.getByRole("button", { name: "W" }))
+    await user.click(screen.getByRole("button", { name: /Run scan/ }))
+
+    await waitFor(() => {
+      expect(vi.mocked(scanApi.run)).toHaveBeenCalledWith("w_naked", "1w")
     })
   }, 10000)
 

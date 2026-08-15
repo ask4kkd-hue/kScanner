@@ -21,6 +21,7 @@ import pandas as pd
 
 import indicators as ind
 import patterns as pat
+import resample as rs
 from backtest import _passes_conditions, load_symbol_frame
 from config import CFG, config_hash, resolve_preset
 from db import connect, init_schema
@@ -31,6 +32,65 @@ log = logging.getLogger("scan")
 
 PAT = CFG["pattern"]
 BT = CFG["backtest"]
+
+FEATURES_TABLE = {"1d": "features_1d", "1w": "features_1w", "1m": "features_1m"}
+
+# W-pattern needs max_separation+buffer bars just to be structurally
+# possible; sma200/sma100 warm-up on top of that assumes daily-scale
+# history most symbols don't have at weekly/monthly granularity (200
+# monthly bars is ~17 years). Lower thresholds here are not a
+# looser pattern rule — find_w_patterns/PAT are unchanged — they just
+# stop discarding every weekly/monthly symbol before it's even tried.
+# A preset that references sma200 will still legitimately find nothing
+# on 1m for a young symbol; that is an honest result, not a bug.
+MIN_BARS = {"1d": 260, "1w": 80, "1m": 40}
+
+
+def load_symbol_frame_tf(con, isin: str, date_to: date, timeframe: str = "1d",
+                         lookback_days: int | None = None) -> pd.DataFrame:
+    """
+    Timeframe-aware bars+features loader.
+
+    "1d" is a straight passthrough to backtest.load_symbol_frame (byte-
+    identical behavior, nothing about the daily path changes). "1w"/"1m"
+    resample the SAME bars_1d history via resample.py — never a separate
+    bars_1w/1m table, matching every other place this project handles
+    weekly/monthly — then join the result against features_1w/features_1m
+    by date. That join is safe because features.py computes those tables
+    on the exact same resample-labelled dates (see resample.py's
+    _resample_by_session: each bar is dated by its last real session).
+    """
+    if timeframe == "1d":
+        date_from = date_to - timedelta(days=lookback_days or 700)
+        return load_symbol_frame(con, isin, date_from, date_to)
+
+    # Weekly/monthly patterns need years of raw daily history to have
+    # enough resampled bars to be structurally possible (see chart.py's
+    # docstring) -- reuse the same lookback the Chart screen relies on
+    # for exactly this reason, rather than inventing a second constant.
+    date_from = date_to - timedelta(days=int(CFG["chart"]["pattern_lookback_bars"] * 1.6))
+    daily = con.execute("""
+        SELECT date, open, high, low, close, volume, vwap
+        FROM bars_1d WHERE isin = ? AND date BETWEEN ? AND ?
+        ORDER BY date
+    """, [isin, date_from, date_to]).df()
+    if daily.empty:
+        return daily
+
+    bars_df = rs.to_weekly(daily) if timeframe == "1w" else rs.to_monthly(daily)
+    if bars_df.empty:
+        return bars_df
+
+    feats = con.execute(f"""
+        SELECT date, sma10, sma20, sma50, sma100, sma200,
+               sma50_slope, sma200_slope, sma_stack, sma_compression,
+               atr14, adr_pct20, adx14, rsi14,
+               turnover_sma20, deliv_pct_sma20, rvol,
+               dist_sma200_pct, rs_rank_pct, bars_available
+        FROM {FEATURES_TABLE[timeframe]} WHERE isin = ? AND date BETWEEN ? AND ?
+    """, [isin, date_from, date_to]).df()
+
+    return bars_df.merge(feats, on="date", how="left").sort_values("date").reset_index(drop=True)
 
 
 def regime_state(con, as_of: date) -> str:
@@ -60,7 +120,7 @@ def regime_state(con, as_of: date) -> str:
 
 def scan(con, preset_name: str, as_of: date | None = None,
          lookback_bars: int = 400, ignore_stale: bool = False,
-         apply_preset: bool = True) -> pd.DataFrame:
+         apply_preset: bool = True, timeframe: str = "1d") -> pd.DataFrame:
     """
     Find W-patterns whose entry trigger fires on (or just before) as_of.
 
@@ -74,6 +134,13 @@ def scan(con, preset_name: str, as_of: date | None = None,
     and the RS filter, and return every features_1d column for the
     signal bar attached to each row, so a caller (the v2 scan screen) can
     filter the superset in-memory with filter chips instead of re-scanning.
+
+    timeframe="1d" (default) is unchanged behaviour end to end. "1w"/"1m"
+    run the SAME pattern code and the SAME preset conditions against
+    resampled weekly/monthly bars (load_symbol_frame_tf) instead of daily
+    ones — universe membership, staleness, and regime stay daily-derived,
+    since weekly/monthly bars are themselves derived from bars_1d and a
+    stale daily feed makes every timeframe stale.
     """
     if CFG["validation"]["abort_scan_if_stale"] and not ignore_stale:
         stale, latest_bar, latest_cal = data_is_stale(con)
@@ -102,12 +169,12 @@ def scan(con, preset_name: str, as_of: date | None = None,
     uni = active_universe(con, as_of)
     log.info("Universe after liquidity/series/surveillance filters: %d", len(uni))
 
-    start = as_of - timedelta(days=int(lookback_bars * 1.6))
     rows = []
 
     for _, s in uni.iterrows():
-        df = load_symbol_frame(con, s["isin"], start, as_of)
-        if len(df) < 260:
+        df = load_symbol_frame_tf(con, s["isin"], as_of, timeframe,
+                                  lookback_days=int(lookback_bars * 1.6))
+        if len(df) < MIN_BARS[timeframe]:
             continue
 
         atr_series = df["atr14"]
@@ -154,7 +221,7 @@ def scan(con, preset_name: str, as_of: date | None = None,
         out_row = {
             "scan_date": as_of,
             "isin": s["isin"], "symbol": s["symbol"],
-            "preset_name": preset_name, "timeframe": "1d",
+            "preset_name": preset_name, "timeframe": timeframe,
             "signal_type": "w_double_bottom",
             "trigger_price": float(row["close"]),
             "l1_date": df["date"].iloc[p.l1_pos], "l1_price": p.l1_price,
@@ -173,8 +240,8 @@ def scan(con, preset_name: str, as_of: date | None = None,
         }
 
         if not apply_preset:
-            fdf = con.execute("""
-                SELECT * FROM features_1d WHERE isin = ? AND date = ?
+            fdf = con.execute(f"""
+                SELECT * FROM {FEATURES_TABLE[timeframe]} WHERE isin = ? AND date = ?
             """, [s["isin"], df["date"].iloc[sig_pos]]).df()
             if not fdf.empty:
                 extra = fdf.iloc[0].to_dict()
@@ -208,6 +275,7 @@ def store_signals(con, df: pd.DataFrame) -> int:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Run the live W-pattern scan.")
     ap.add_argument("--preset", default="w_baseline")
+    ap.add_argument("--timeframe", default="1d", choices=["1d", "1w", "1m"])
     ap.add_argument("--export", action="store_true", help="write an xlsx to exports/")
     ap.add_argument("--ignore-stale", action="store_true")
     args = ap.parse_args()
@@ -217,7 +285,7 @@ def main() -> None:
     con = connect()
     init_schema(con)
 
-    df = scan(con, args.preset, ignore_stale=args.ignore_stale)
+    df = scan(con, args.preset, ignore_stale=args.ignore_stale, timeframe=args.timeframe)
     store_signals(con, df)
 
     if df.empty:

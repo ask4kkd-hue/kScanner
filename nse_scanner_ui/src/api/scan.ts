@@ -32,7 +32,8 @@ export const scanApi = {
   filterChips: () => api.get<FilterChip[]>("/api/scan/filter-chips"),
   presets: () => api.get<string[]>("/api/scan/presets"),
   preselect: (preset: string) => api.get<string[]>(`/api/scan/presets/${encodeURIComponent(preset)}/preselect`),
-  run: (presetName: string) => api.post<ScanRunResponse>("/api/scan/run", { preset_name: presetName }),
+  run: (presetName: string, timeframe: string) =>
+    api.post<ScanRunResponse>("/api/scan/run", { preset_name: presetName, timeframe }),
   filter: (scanId: string, chips: Record<string, ChipState>) =>
     api.post<ScanFilterResponse>(`/api/scan/${scanId}/filter`, { chips }),
   savePreset: (name: string, conditions: string[]) =>
