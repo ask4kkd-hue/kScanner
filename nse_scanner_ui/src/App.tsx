@@ -8,6 +8,7 @@ import { Nav } from "@/components/shell/Nav"
 import Chart from "@/routes/Chart"
 import Data from "@/routes/Data"
 import Placeholder from "@/routes/Placeholder"
+import Scan from "@/routes/Scan"
 import Today from "@/routes/Today"
 
 function Layout({ children }: { children: ReactNode }) {
@@ -30,7 +31,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Layout><Today /></Layout>} />
-      <Route path="/scan" element={<Layout><Placeholder screen="Scan" phase="Phase 4" /></Layout>} />
+      <Route path="/scan" element={<Layout><Scan /></Layout>} />
       <Route path="/chart" element={<Layout><Chart /></Layout>} />
       <Route path="/chart/:symbol" element={<Layout><Chart /></Layout>} />
       <Route path="/watchlist" element={<Layout><Placeholder screen="Watchlist" phase="Phase 5" /></Layout>} />

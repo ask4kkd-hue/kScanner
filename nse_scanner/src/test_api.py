@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import sys
 
+import yaml
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, ".")
 from api.main import app  # noqa: E402
+from api.services import scan as scan_service  # noqa: E402
 
 PASS, FAIL = 0, 0
 
@@ -137,7 +139,83 @@ from api.deps import get_master  # noqa: E402
 get_master().execute("DELETE FROM drawings WHERE timeframe = ?", [test_tf])
 
 # =====================================================================
-print("\n[5] CORS is configured for the Vite dev server")
+print("\n[5] Scan router")
+
+r = client.get("/api/scan/filter-chips")
+check("GET /api/scan/filter-chips -> 200", r.status_code == 200, r.text)
+chips = r.json()
+check("returns the config.yaml filter_chips list", isinstance(chips, list) and len(chips) > 0, str(len(chips)))
+check("each chip has id/label/expr", all({"id", "label", "expr"} <= set(c.keys()) for c in chips), str(chips[:1]))
+
+r = client.get("/api/scan/presets")
+check("GET /api/scan/presets -> 200", r.status_code == 200, r.text)
+presets = r.json()
+check("returns a non-empty preset name list", isinstance(presets, list) and len(presets) > 0, str(presets))
+test_preset = presets[0]
+
+r = client.get(f"/api/scan/presets/{test_preset}/preselect")
+check(f"GET /api/scan/presets/{test_preset}/preselect -> 200", r.status_code == 200, r.text)
+check("returns a list of chip ids", isinstance(r.json(), list), r.text)
+
+r = client.post("/api/scan/run", json={"preset_name": test_preset})
+check("POST /api/scan/run -> 200", r.status_code == 200, r.text)
+run_body = r.json()
+check("has scan_id/total_count/preselected_chip_ids", set(run_body.keys()) == {
+    "scan_id", "total_count", "preselected_chip_ids"
+}, str(run_body.keys()))
+scan_id = run_body["scan_id"]
+
+# Filter with everything OFF first -> should equal the unfiltered total.
+r = client.post(f"/api/scan/{scan_id}/filter", json={
+    "chips": {c["id"]: {"active": False, "value": c.get("default")} for c in chips}
+})
+check("POST filter (all chips off) -> 200", r.status_code == 200, r.text)
+filter_body = r.json()
+check("count with nothing active equals total", filter_body["count"] == filter_body["total"], str(filter_body))
+check("rows length matches count", len(filter_body["rows"]) == filter_body["count"], str(len(filter_body["rows"])))
+
+# Now actually turn ONE chip on and confirm the count can only shrink or stay the same.
+first_chip = chips[0]
+r = client.post(f"/api/scan/{scan_id}/filter", json={
+    "chips": {first_chip["id"]: {"active": True, "value": first_chip.get("default")}}
+})
+check("POST filter (one chip on) -> 200", r.status_code == 200, r.text)
+filtered_body = r.json()
+check("filtering can only narrow the result, never widen it",
+     filtered_body["count"] <= filter_body["count"],
+     f"{filtered_body['count']} vs {filter_body['count']}")
+
+r = client.post("/api/scan/does-not-exist/filter", json={"chips": {}})
+check("unknown scan_id -> 404", r.status_code == 404, r.text)
+
+# Validation happens at the API boundary (Pydantic Field pattern), BEFORE
+# config.save_preset() (a surgical text insert into config.yaml, not a
+# schema-validated writer) ever runs — these must never reach the real
+# file. Confirmed the hard way: an earlier version of this test expected
+# save_preset() itself to reject a bad name, it doesn't, and the request
+# went through and wrote an empty-named preset into the real config.yaml.
+for bad_name in ["", "123starts_with_digit", "has spaces", "has-dash"]:
+    r = client.post("/api/scan/save-preset", json={"name": bad_name, "conditions": ["close > sma200"]})
+    check(f"save-preset rejects invalid name {bad_name!r} -> 422 (before touching config.yaml)",
+         r.status_code == 422, r.text)
+
+with open("config.yaml", encoding="utf-8") as f:
+    preset_count_after = yaml.safe_load(f)["presets"].keys()
+check("config.yaml's real preset list is unchanged after the rejected attempts",
+     set(preset_count_after) == set(scan_service.presets()), str(preset_count_after))
+
+# =====================================================================
+print("\n[6] Watchlist router")
+
+r = client.get("/api/watchlist")
+check("GET /api/watchlist -> 200", r.status_code == 200, r.text)
+check("returns a list", isinstance(r.json(), list), r.text)
+
+r = client.post("/api/watchlist", json={"symbol": "__NOT_A_REAL_SYMBOL__"})
+check("adding an unknown symbol -> 404", r.status_code == 404, r.text)
+
+# =====================================================================
+print("\n[7] CORS is configured for the Vite dev server")
 r = client.options("/api/data/table-counts", headers={
     "Origin": "http://localhost:5173",
     "Access-Control-Request-Method": "GET",
