@@ -70,8 +70,21 @@ def health() -> dict:
 
 _DIST = _SRC.parent.parent / "nse_scanner_ui" / "dist"
 if _DIST.exists():
+    from fastapi import HTTPException
+    from fastapi.responses import FileResponse
     from fastapi.staticfiles import StaticFiles
-    app.mount("/", StaticFiles(directory=str(_DIST), html=True), name="frontend")
+
+    app.mount("/assets", StaticFiles(directory=str(_DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str) -> FileResponse:
+        # React Router owns everything under here client-side (e.g. /performance,
+        # /chart/RELIANCE) — there's no server-side route for those paths, so any
+        # non-API, non-asset GET falls back to index.html and the router takes it
+        # from there. A stray /api/* 404 is a real 404, not a SPA route.
+        if full_path.startswith("api/"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return FileResponse(_DIST / "index.html")
 
 
 if __name__ in {"__main__", "__mp_main__"}:

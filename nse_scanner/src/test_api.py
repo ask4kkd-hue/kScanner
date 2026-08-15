@@ -419,7 +419,29 @@ finally:
     exports_router.subprocess.Popen = _orig_popen
 
 # =====================================================================
-print("\n[11] CORS is configured for the Vite dev server")
+print("\n[11] Built-mode SPA fallback (only if nse_scanner_ui/dist exists)")
+from api.main import _DIST  # noqa: E402
+
+if _DIST.exists():
+    r = client.get("/")
+    check("GET / -> 200, serves index.html", r.status_code == 200 and "<div id=\"root\">" in r.text, r.text[:200])
+
+    # React Router client-side routes have no server-side route of their own —
+    # this is the exact gap a plain StaticFiles(html=True) mount leaves open
+    # (it only default-documents the mounted root, not arbitrary sub-paths).
+    for path in ("/performance", "/backtest", "/chart/RELIANCE", "/scan", "/nonexistent-garbage-path"):
+        r = client.get(path)
+        check(f"GET {path} -> 200, falls back to index.html (SPA route, not a server route)",
+             r.status_code == 200 and "<div id=\"root\">" in r.text, f"{r.status_code}: {r.text[:200]}")
+
+    r = client.get("/api/this-endpoint-does-not-exist")
+    check("an unmatched /api/* path still 404s (not swallowed by the SPA fallback)",
+         r.status_code == 404, r.text)
+else:
+    print("  SKIP  nse_scanner_ui/dist not built — run `npm run build` to exercise this section")
+
+# =====================================================================
+print("\n[12] CORS is configured for the Vite dev server")
 r = client.options("/api/data/table-counts", headers={
     "Origin": "http://localhost:5173",
     "Access-Control-Request-Method": "GET",
