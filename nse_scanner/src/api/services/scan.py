@@ -13,7 +13,7 @@ import pandas as pd
 
 from backtest import _eval_condition
 from config import CFG, resolve_preset, save_preset as _save_preset
-from scan import current_as_of, scan as run_scan_fn
+from scan import current_as_of, filter_to_preset, scan as run_scan_fn, store_signals
 
 from api.services import scan_cache
 
@@ -45,7 +45,7 @@ def preselected_chip_ids(preset_name: str) -> list[str]:
     return [c["id"] for c in CHIPS if _chip_column(c["expr"]) in cond_cols]
 
 
-def run_scan(con, preset_name: str, timeframe: str = "1d") -> tuple[str, int]:
+def run_scan(con, preset_name: str, timeframe: str = "1d", publish_signals: bool = False) -> tuple[str, int]:
     """Raises RuntimeError if the stale-data guard trips (ignore_stale=True here,
     same as the NiceGUI original — the Scan screen is a deliberate manual action,
     not the <2s Today landing page, so the guard doesn't need to block it).
@@ -54,14 +54,27 @@ def run_scan(con, preset_name: str, timeframe: str = "1d") -> tuple[str, int]:
     for today) before paying for a full-universe pattern scan again — a
     re-scan of the same thing on the same day returns instantly instead of
     re-running pattern detection across ~2400 symbols.
+
+    publish_signals=True additionally derives the apply_preset=True-equivalent
+    filtered result from this same scan (scan.filter_to_preset — no second
+    scan) and persists it to signals_1d, which is what the Dashboard/New
+    Opportunity screens read. Deliberately opt-in and used ONLY by the
+    startup warm-scan (api/main.py) — the interactive Scan screen calling
+    this on every ad-hoc preset a user tries would flood New Opportunities
+    with one-off experiments instead of the curated set config.yaml's
+    startup_warm_scans names.
     """
     as_of = current_as_of(con)
     cached = scan_cache.get_persisted(con, preset_name, timeframe, as_of)
     if cached is not None:
-        return scan_cache.store(cached), len(cached)
+        df = cached
+    else:
+        df = run_scan_fn(con, preset_name, ignore_stale=True, apply_preset=False, timeframe=timeframe)
+        scan_cache.store_persisted(con, preset_name, timeframe, as_of, df)
 
-    df = run_scan_fn(con, preset_name, ignore_stale=True, apply_preset=False, timeframe=timeframe)
-    scan_cache.store_persisted(con, preset_name, timeframe, as_of, df)
+    if publish_signals:
+        store_signals(con, filter_to_preset(df, preset_name))
+
     return scan_cache.store(df), len(df)
 
 

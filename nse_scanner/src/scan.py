@@ -264,6 +264,27 @@ def scan(con, preset_name: str, as_of: date | None = None,
     return out
 
 
+def filter_to_preset(df: pd.DataFrame, preset_name: str) -> pd.DataFrame:
+    """
+    Given an apply_preset=False scan() result (the pattern + hard-filter
+    superset, every feature column attached), derive exactly what an
+    apply_preset=True scan of the same preset would have found — without
+    re-scanning. Reuses the SAME _passes_conditions/RS-filter logic scan()
+    applies inline, so this can never drift from what a live scan finds;
+    it is a filter over already-computed rows, not a second implementation.
+    """
+    if df.empty:
+        return df
+    preset = resolve_preset(CFG, preset_name)
+    conditions = preset.get("conditions", [])
+    mask = df.apply(lambda row: _passes_conditions(row, conditions), axis=1)
+    out = df[mask]
+    if CFG["filters"]["use_relative_strength"] and "rs_rank_pct" in out.columns:
+        rs_min = CFG["filters"]["rs_rank_min_pct"]
+        out = out[out["rs_rank_pct"].apply(lambda v: v is not None and v == v and v >= rs_min)]
+    return out
+
+
 def store_signals(con, df: pd.DataFrame) -> int:
     if df.empty:
         return 0

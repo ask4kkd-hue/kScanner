@@ -37,8 +37,12 @@ log = logging.getLogger("api.main")
 def _run_startup_warm_scans() -> None:
     """Background thread: pre-compute the configured scans into scan_result_cache
     (config.yaml's startup_warm_scans) so opening Scan for one of them is instant
-    on the first try, not just the second. Runs on its own cursor, same concurrency
-    pattern as every other background op in this app (api/jobs.py, refresh SSE).
+    on the first try, not just the second. Also publishes each one to signals_1d
+    (publish_signals=True) — this is what actually keeps the Dashboard/New
+    Opportunity screens current; before this they only reflected whatever preset
+    someone last happened to run manually via the CLI, possibly days stale.
+    Runs on its own cursor, same concurrency pattern as every other background
+    op in this app (api/jobs.py, refresh SSE).
 
     A CPU-heavy loop (pattern detection across ~2400 symbols, mostly pure-Python/
     pandas work, not I/O) sharing the GIL with uvicorn's asyncio loop measured
@@ -58,7 +62,7 @@ def _run_startup_warm_scans() -> None:
         for w in CFG.get("startup_warm_scans", []):
             preset, timeframe = w["preset"], w.get("timeframe", "1d")
             try:
-                _, n = run_scan(cur, preset, timeframe)
+                _, n = run_scan(cur, preset, timeframe, publish_signals=True)
                 log.info("Startup warm-scan %s/%s -> %d signals (%.1fs)",
                          preset, timeframe, n, time.monotonic() - t0)
             except Exception:

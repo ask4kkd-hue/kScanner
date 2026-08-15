@@ -27,15 +27,26 @@ def _tracked_symbols(con) -> set[str]:
 
 
 def _latest_signals(con, timeframe: str):
+    # signals_1d's key is (scan_date, isin, preset_name, timeframe) -- a symbol
+    # matching more than one preset on the same day gets one row per preset.
+    # "New Opportunities" cares whether a symbol has a fresh signal at all, not
+    # how many presets happened to flag it, so this collapses to one row per
+    # symbol (trigger/stop/target are identical across presets for the same
+    # symbol+date since they come from the same underlying pattern, so ANY_VALUE
+    # is exact, not an approximation).
     return con.execute("""
         WITH latest AS (SELECT MAX(scan_date) AS d FROM signals_1d WHERE timeframe = ?)
-        SELECT s.symbol, s.trigger_price, s.stop_suggested, s.target_suggested,
-              f.rs_rank_pct
+        SELECT s.symbol,
+              ANY_VALUE(s.trigger_price) AS trigger_price,
+              ANY_VALUE(s.stop_suggested) AS stop_suggested,
+              ANY_VALUE(s.target_suggested) AS target_suggested,
+              ANY_VALUE(f.rs_rank_pct) AS rs_rank_pct
         FROM signals_1d s
         JOIN latest ON s.scan_date = latest.d
         LEFT JOIN features_1d f ON f.isin = s.isin AND f.date = s.scan_date
         WHERE s.timeframe = ?
-        ORDER BY f.rs_rank_pct DESC NULLS LAST
+        GROUP BY s.symbol
+        ORDER BY rs_rank_pct DESC NULLS LAST
     """, [timeframe, timeframe]).df()
 
 
@@ -80,10 +91,12 @@ def _opportunities(con, tracked: set[str]) -> list[dict]:
         blocks.append({
             "timeframe": timeframe, "built": True, "total_signals": len(sig),
             "already_tracked_count": len(already),
+            # Full list, uncapped -- the New Opportunity screen needs all of
+            # it; Dashboard's own condensed preview slices client-side.
             "new_signals": [
                 {"symbol": r["symbol"], "trigger_price": float(r["trigger_price"]),
                  "rs_rank_pct": float(r["rs_rank_pct"]) if r["rs_rank_pct"] == r["rs_rank_pct"] else None}
-                for _, r in new_sig.head(5).iterrows()
+                for _, r in new_sig.iterrows()
             ],
         })
     return blocks
