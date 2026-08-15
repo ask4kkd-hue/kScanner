@@ -38,9 +38,21 @@ export interface TradeCloseRequest {
   tags?: string[]
 }
 
+export interface TradeUpdateRequest {
+  entry_date?: string
+  entry_price?: number
+  qty?: number
+  stop_price?: number
+  target_price?: number
+  thesis?: string
+}
+
 export const holdingsApi = {
   openPositions: () => api.get<PositionRow[]>("/api/trades/open"),
   open: (body: TradeOpenRequest) => api.post<{ trade_id: number }>("/api/trades", body),
   close: (tradeId: number, body: TradeCloseRequest) =>
     api.post<{ trade_id: number; net_pnl: number }>(`/api/trades/${tradeId}/close`, body),
+  update: (tradeId: number, body: TradeUpdateRequest) =>
+    api.patch<{ updated: number }>(`/api/trades/${tradeId}`, body),
+  remove: (tradeId: number) => api.delete<{ deleted: number }>(`/api/trades/${tradeId}`),
 }

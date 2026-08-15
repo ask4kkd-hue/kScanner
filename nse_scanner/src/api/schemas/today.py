@@ -39,7 +39,7 @@ class OpportunitySignal(BaseModel):
     trigger_price: float
     l1_price: float | None
     l2_price: float | None
-    l1_l2_distance: float | None
+    l1_l2_distance_pct: float | None
     neckline: float | None
     depth_pct: float | None
     stop_suggested: float | None

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { toast } from "sonner"
 
 import { Button } from "@/components/ui/button"
 import { PageTitle } from "@/components/ui/section"
@@ -6,7 +7,9 @@ import { StatusBadge } from "@/components/ui/status-badge"
 import { SymbolLink } from "@/components/ui/symbol-link"
 import { EntryDialog } from "@/components/trades/EntryDialog"
 import { CloseDialog } from "@/components/trades/CloseDialog"
-import { useOpenPositions } from "@/queries/holdings"
+import { EditDialog } from "@/components/trades/EditDialog"
+import type { PositionRow } from "@/api/holdings"
+import { useDeleteTrade, useOpenPositions } from "@/queries/holdings"
 
 function inr(n: number): string {
   return `₹${Math.round(n).toLocaleString("en-IN")}`
@@ -14,8 +17,18 @@ function inr(n: number): string {
 
 export default function Positions() {
   const { data: positions } = useOpenPositions()
+  const deleteTrade = useDeleteTrade()
   const [entryOpen, setEntryOpen] = useState(false)
   const [closeTarget, setCloseTarget] = useState<{ id: number; symbol: string } | null>(null)
+  const [editTarget, setEditTarget] = useState<PositionRow | null>(null)
+
+  const removePosition = (p: PositionRow) => {
+    if (!window.confirm(`Delete ${p.symbol}? This removes the trade entirely — use "×" instead if you actually exited.`)) return
+    deleteTrade.mutate(p.trade_id, {
+      onSuccess: () => toast.success(`Deleted ${p.symbol}.`),
+      onError: (err) => toast.error(err instanceof Error ? err.message : "Could not delete position."),
+    })
+  }
 
   const totalPnl = (positions ?? []).reduce((sum, p) => sum + (p.pnl_rupees ?? 0), 0)
   const atRisk = (positions ?? []).filter((p) => p.status === "WATCH" || p.status === "REVIEW").length
@@ -48,6 +61,18 @@ export default function Positions() {
                       {p.pnl_rupees !== null ? inr(p.pnl_rupees) : "—"}
                     </span>
                     <span>{p.r_multiple !== null ? `${p.r_multiple.toFixed(2)}R` : "—"}</span>
+                    <button
+                      type="button" className="text-muted-foreground hover:text-foreground text-xs underline"
+                      onClick={() => setEditTarget(p)}
+                    >
+                      edit
+                    </button>
+                    <button
+                      type="button" className="text-muted-foreground hover:text-destructive text-xs underline"
+                      onClick={() => removePosition(p)}
+                    >
+                      delete
+                    </button>
                     <Button
                       size="icon" variant="ghost" className="size-7"
                       onClick={() => setCloseTarget({ id: p.trade_id, symbol: p.symbol })}
@@ -75,6 +100,7 @@ export default function Positions() {
       )}
 
       <EntryDialog open={entryOpen} onOpenChange={setEntryOpen} />
+      <EditDialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)} position={editTarget} />
       {closeTarget && (
         <CloseDialog
           open={!!closeTarget}

@@ -116,6 +116,42 @@ def close_trade(con, trade_id: int, exit_date: date, exit_price: float,
             "holding_days": hold, "mae_pct": mae, "mfe_pct": mfe}
 
 
+_EDITABLE_FIELDS = {"entry_date", "entry_price", "qty", "stop_price", "target_price", "thesis"}
+
+
+def update_trade(con, trade_id: int, **fields) -> None:
+    """
+    Edit an OPEN position's entry-side details — correcting a fat-fingered
+    entry price, adjusting a stop, updating the thesis. Exit-side fields
+    (exit_price, exit_reason, ...) go through close_trade() instead; this
+    is deliberately restricted to _EDITABLE_FIELDS so a caller can't use it
+    to sneak a trade into 'closed' or overwrite the computed P&L columns.
+    """
+    patch = {k: v for k, v in fields.items() if k in _EDITABLE_FIELDS and v is not None}
+    if not patch:
+        return
+    exists = con.execute("SELECT 1 FROM trades WHERE trade_id = ?", [trade_id]).fetchone()
+    if not exists:
+        raise ValueError(f"No trade {trade_id}")
+    set_clause = ", ".join(f"{k} = ?" for k in patch)
+    con.execute(f"UPDATE trades SET {set_clause} WHERE trade_id = ?",
+               [*patch.values(), trade_id])
+
+
+def delete_trade(con, trade_id: int) -> None:
+    """
+    Remove a trade entirely, including its feature snapshot and tags.
+
+    For correcting a MISTAKEN entry (wrong symbol, fat-fingered qty caught
+    before it matters) — not for exiting a real position, which should go
+    through close_trade() instead so the history (and the P&L it produced)
+    is kept, not erased.
+    """
+    con.execute("DELETE FROM trade_tags WHERE trade_id = ?", [trade_id])
+    con.execute("DELETE FROM trade_snapshot WHERE trade_id = ?", [trade_id])
+    con.execute("DELETE FROM trades WHERE trade_id = ?", [trade_id])
+
+
 def compute_mae_mfe(con, isin: str, entry_date, exit_date,
                     entry_price: float) -> tuple[float, float]:
     """Worst and best excursion while the position was held — from bars_1d."""

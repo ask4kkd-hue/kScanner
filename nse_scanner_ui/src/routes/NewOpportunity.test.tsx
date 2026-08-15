@@ -22,7 +22,7 @@ const FIXTURE: TodayResponse = {
       timeframe: "1d", built: true, total_signals: 2, already_tracked_count: 1,
       new_signals: [{
         symbol: "TCS", trigger_price: 4000, l1_price: 3900, l2_price: 3950,
-        l1_l2_distance: -50, neckline: 4100, depth_pct: 5.0,
+        l1_l2_distance_pct: -1.28, neckline: 4100, depth_pct: 5.0,
         stop_suggested: 3850, target_suggested: 4300,
         bottom_at_sma: "at_sma50", sma_stack: "mixed", rs_rank_pct: 88,
       }],

@@ -28,7 +28,7 @@ export interface OpportunitySignal {
   trigger_price: number
   l1_price: number | null
   l2_price: number | null
-  l1_l2_distance: number | null
+  l1_l2_distance_pct: number | null
   neckline: number | null
   depth_pct: number | null
   stop_suggested: number | null

@@ -18,6 +18,9 @@ const TIMEFRAME_LABEL: Record<string, string> = {
 function num(v: number | null, digits = 2): string {
   return v === null ? "—" : v.toFixed(digits)
 }
+function pct(v: number | null, digits = 1): string {
+  return v === null ? "—" : `${v.toFixed(digits)}%`
+}
 
 const COLUMNS: ColumnDef<OpportunitySignal, unknown>[] = [
   {
@@ -28,8 +31,8 @@ const COLUMNS: ColumnDef<OpportunitySignal, unknown>[] = [
   { accessorKey: "l1_price", header: "L1", cell: ({ getValue }) => num(getValue() as number | null) },
   { accessorKey: "l2_price", header: "L2", cell: ({ getValue }) => num(getValue() as number | null) },
   {
-    accessorKey: "l1_l2_distance", header: "L1-L2 dist",
-    cell: ({ getValue }) => num(getValue() as number | null),
+    accessorKey: "l1_l2_distance_pct", header: "L1-L2 dist%",
+    cell: ({ getValue }) => pct(getValue() as number | null),
   },
   { accessorKey: "neckline", header: "Neckline", cell: ({ getValue }) => num(getValue() as number | null) },
   { accessorKey: "depth_pct", header: "Depth%", cell: ({ getValue }) => num(getValue() as number | null, 1) },

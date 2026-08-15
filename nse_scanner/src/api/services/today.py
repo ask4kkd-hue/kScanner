@@ -109,9 +109,12 @@ def _opportunities(con, tracked: set[str]) -> list[dict]:
                     "trigger_price": float(r["trigger_price"]),
                     "l1_price": _num(r["l1_price"]),
                     "l2_price": _num(r["l2_price"]),
-                    "l1_l2_distance": (
-                        float(r["l1_price"]) - float(r["l2_price"])
-                        if r["l1_price"] == r["l1_price"] and r["l2_price"] == r["l2_price"] else None
+                    # (L1-L2)/L1 % -- how deep the second bottom undercut the
+                    # first, as a percentage of L1's own price.
+                    "l1_l2_distance_pct": (
+                        (float(r["l1_price"]) - float(r["l2_price"])) / float(r["l1_price"]) * 100.0
+                        if r["l1_price"] == r["l1_price"] and r["l2_price"] == r["l2_price"]
+                        and r["l1_price"] != 0 else None
                     ),
                     "neckline": _num(r["neckline"]),
                     "depth_pct": _num(r["depth_pct"]),

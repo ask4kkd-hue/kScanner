@@ -285,6 +285,35 @@ still_there = get_master().execute(
     "SELECT COUNT(*) FROM trades WHERE trade_id = ?", [test_trade_id]).fetchone()[0]
 check("test trade fully removed from the real trades table after cleanup", still_there == 0)
 
+# PATCH/DELETE — a second, separate fixture trade so it never touches the
+# already-closed one above or any real position in the journal.
+r = client.post("/api/trades", json={
+    "symbol": test_symbol, "entry_date": "2024-01-02",
+    "entry_price": 1.0, "qty": 1, "stop_price": 0.5, "preset_name": "__test_api_fixture__",
+})
+edit_trade_id = r.json().get("trade_id")
+
+r = client.patch(f"/api/trades/{edit_trade_id}", json={"entry_price": 1.25, "qty": 2, "thesis": "edited by test_api"})
+check(f"PATCH /api/trades/{edit_trade_id} -> 200", r.status_code == 200, r.text)
+
+r = client.get("/api/trades/open")
+patched = next((p for p in r.json() if p["trade_id"] == edit_trade_id), None)
+check("PATCH'd trade still open with updated entry_price/qty",
+     patched is not None and patched["entry_price"] == 1.25 and patched["qty"] == 2, r.text)
+
+r = client.patch("/api/trades/999999999", json={"entry_price": 1.0})
+check("PATCH unknown trade_id -> 404", r.status_code == 404, r.text)
+
+r = client.delete(f"/api/trades/{edit_trade_id}")
+check(f"DELETE /api/trades/{edit_trade_id} -> 200", r.status_code == 200, r.text)
+
+r = client.get("/api/trades/open")
+check("deleted trade no longer appears in /api/trades/open",
+     not any(p["trade_id"] == edit_trade_id for p in r.json()), r.text)
+
+r = client.delete("/api/trades/999999999")
+check("DELETE unknown trade_id -> 404", r.status_code == 404, r.text)
+
 # =====================================================================
 print("\n[8] Performance router")
 

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_cursor
 from api.schemas.today import PositionRow
-from api.schemas.trades import TradeCloseRequest, TradeOpenRequest
+from api.schemas.trades import TradeCloseRequest, TradeOpenRequest, TradeUpdateRequest
 from api.services.holdings import list_open_positions
 
 router = APIRouter(prefix="/trades", tags=["holdings"])
@@ -54,3 +54,26 @@ def post_close_trade(trade_id: int, body: TradeCloseRequest, cur=Depends(get_cur
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not close position: {e}") from e
     return result
+
+
+@router.patch("/{trade_id}")
+def patch_trade(trade_id: int, body: TradeUpdateRequest, cur=Depends(get_cursor)) -> dict:
+    row = cur.execute("SELECT status FROM trades WHERE trade_id = ?", [trade_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No trade {trade_id}")
+    if row[0] != "open":
+        raise HTTPException(status_code=400, detail="Only open positions can be edited — this one is closed.")
+    try:
+        jr.update_trade(cur, trade_id, **body.model_dump(exclude_none=True))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not update position: {e}") from e
+    return {"updated": trade_id}
+
+
+@router.delete("/{trade_id}")
+def delete_trade_endpoint(trade_id: int, cur=Depends(get_cursor)) -> dict:
+    row = cur.execute("SELECT 1 FROM trades WHERE trade_id = ?", [trade_id]).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"No trade {trade_id}")
+    jr.delete_trade(cur, trade_id)
+    return {"deleted": trade_id}
