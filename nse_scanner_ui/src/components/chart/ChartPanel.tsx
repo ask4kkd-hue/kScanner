@@ -11,13 +11,14 @@ import { chartApi } from "@/api/chart"
 import { SymbolCombobox } from "@/components/chart/SymbolCombobox"
 import { KLineChartWidget, type KLineChartHandle, type OverlayPayload } from "@/components/chart/KLineChartWidget"
 import { useChartSymbols } from "@/queries/chart"
-import { type L1L2LineStyle, useUiPrefs } from "@/store/uiPrefs"
+import { L1L2_LABEL_FORMAT_LABELS, type L1L2LabelFormat, type L1L2LineStyle, useUiPrefs } from "@/store/uiPrefs"
 
 const TIMEFRAMES = { D: "1d", W: "1w", M: "1m" } as const
 const CHART_TYPES = ["Candle", "Line", "Heikin Ashi", "Renko"] as const
 const OVERLAY_OPTIONS = ["sma10", "sma20", "sma50", "sma100", "sma200"]
 const AVWAP_OPTIONS = ["(none)", "52-week low", "52-week high", "last W first low"]
 const L1L2_LINE_STYLES: L1L2LineStyle[] = ["solid", "dashed", "dotted"]
+const L1L2_LABEL_FORMATS: L1L2LabelFormat[] = ["both", "level", "price"]
 const DRAWING_TOOLS: [string, string][] = [
   ["horizontal_line", "H-Line"], ["trend_line", "Trend"], ["ray", "Ray"],
   ["rectangle", "Rect"], ["fibonacci_retracement", "Fib"], ["text_note", "Text"],
@@ -39,7 +40,7 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
   const [avwap, setAvwap] = useState(AVWAP_OPTIONS[0])
   const [showPattern, setShowPattern] = useState(true)
   const [showAllTf, setShowAllTf] = useState(true)
-  const { l1l2Color, l1l2LineStyle, l1l2LineWidth, setL1L2Style } = useUiPrefs()
+  const { l1l2Color, l1l2LineStyle, l1l2LineWidth, l1l2LabelFormat, setL1L2Style } = useUiPrefs()
 
   useEffect(() => {
     if (initialSymbol) setSymbol(initialSymbol)
@@ -50,13 +51,14 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
   const chartQuery = useQuery({
     queryKey: [
       "chart", symbol, timeframe, bars, chartType, overlays, avwap, showPattern, showAllTf,
-      l1l2Color, l1l2LineStyle, l1l2LineWidth,
+      l1l2Color, l1l2LineStyle, l1l2LineWidth, l1l2LabelFormat,
     ],
     queryFn: () =>
       chartApi.get(symbol, {
         timeframe, bars, chart_type: chartType, overlays, avwap,
         show_pattern: showPattern, show_all_tf: showAllTf,
         l1l2_color: l1l2Color, l1l2_line_style: l1l2LineStyle, l1l2_line_width: l1l2LineWidth,
+        l1l2_label_format: l1l2LabelFormat,
       }),
     enabled: !!symbol,
   })
@@ -182,6 +184,20 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
                 onChange={(e) => setL1L2Style({ l1l2LineWidth: Number(e.target.value) })}
                 className="h-7 w-14 px-1.5 text-xs"
               />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs">Label</label>
+              <Select
+                value={l1l2LabelFormat}
+                onValueChange={(v) => setL1L2Style({ l1l2LabelFormat: v as L1L2LabelFormat })}
+              >
+                <SelectTrigger className="h-7 w-40 text-xs"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {L1L2_LABEL_FORMATS.map((f) => (
+                    <SelectItem key={f} value={f}>{L1L2_LABEL_FORMAT_LABELS[f]}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </PopoverContent>
         </Popover>

@@ -107,7 +107,7 @@ export default function Dashboard() {
                 <p className="text-sm">No new signals.</p>
               ) : (
                 <div className="flex flex-col gap-1">
-                  {block.new_signals.slice(0, 3).map((sig) => (
+                  {block.new_signals.map((sig) => (
                     <div key={sig.symbol} className="flex gap-4 text-sm">
                       <SymbolLink symbol={sig.symbol} className="w-28 font-semibold hover:text-primary hover:underline" />
                       <span className="w-20">{sig.trigger_price.toFixed(2)}</span>

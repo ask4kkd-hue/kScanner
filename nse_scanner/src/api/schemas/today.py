@@ -37,6 +37,15 @@ class PositionRow(BaseModel):
 class OpportunitySignal(BaseModel):
     symbol: str
     trigger_price: float
+    l1_price: float | None
+    l2_price: float | None
+    l1_l2_distance: float | None
+    neckline: float | None
+    depth_pct: float | None
+    stop_suggested: float | None
+    target_suggested: float | None
+    bottom_at_sma: str | None
+    sma_stack: str | None
     rs_rank_pct: float | None
 
 
@@ -44,7 +53,7 @@ class OpportunityBlock(BaseModel):
     timeframe: str  # 1d | 1w | 1m
     built: bool  # False only for 1w/1m when that features table has zero rows
     total_signals: int
-    new_signals: list[OpportunitySignal]  # top 5, untracked (not already held/watched)
+    new_signals: list[OpportunitySignal]  # full list, untracked (not already held/watched)
     already_tracked_count: int
 
 

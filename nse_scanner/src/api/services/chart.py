@@ -86,20 +86,35 @@ def _active_pattern(bars_df: pd.DataFrame):
     return candidates[-1] if candidates else None
 
 
+def _format_label(label: str, price: float, label_format: str) -> str:
+    if label_format == "price":
+        return f"{price:.2f}"
+    if label_format == "level":
+        return label
+    return f"{label} {price:.2f}"  # "both" (default)
+
+
 def _level_overlay_pair(tf_bars: pd.DataFrame, pos: int, price: float, label: str,
                         color: str | None = None, line_style: str | None = None,
-                        line_width: int | None = None) -> list[dict]:
+                        line_width: int | None = None, label_format: str = "both") -> list[dict]:
     """
-    One overlay per L1/L2/neckline level: klinecharts' built-in "simpleTag" —
-    a horizontal line at the price, with its text rendered in the Y-axis
-    gutter (right-aligned, at the line's height), never on the plot itself.
+    One overlay per L1/L2/neckline level: a custom "levelRay" (registered
+    client-side in KLineChartWidget.tsx) — a ray starting AT the marked
+    candle and extending right, same as klinecharts' built-in "priceLine",
+    but with its text rendered in the Y-axis gutter (right-aligned, at the
+    line's height) instead of on the anchor point itself.
 
-    Previously this was a ["priceLine", "simpleAnnotation"] pair. Both of
-    those anchor their text AT the specific (bar, price) point — priceLine's
-    price label sits directly on that coordinate, simpleAnnotation's text
-    floats a fixed 50px above it — so on a compressed or choppy price range
-    the text routinely lands on top of an unrelated candle. simpleTag draws
-    the same reference line but places its text off the plot entirely.
+    Previously this was a ["priceLine", "simpleAnnotation"] pair, and before
+    that a "simpleTag" (full-width line, not a ray from the candle). Both
+    priceLine and simpleAnnotation anchor their TEXT at the specific (bar,
+    price) point — priceLine's price label sits directly on that coordinate,
+    simpleAnnotation's text floats a fixed 50px above it — so on a
+    compressed or choppy price range the text routinely lands on top of an
+    unrelated candle. simpleTag fixed the text-overlap but drew the line
+    across the FULL chart width instead of starting at the marked candle.
+    levelRay keeps the ray starting at the candle (matches how a support/
+    resistance level is conventionally drawn) while keeping the text off
+    the plot entirely.
     """
     ts = int(pd.Timestamp(tf_bars["date"].iloc[pos]).timestamp() * 1000)
     point = {"timestamp": ts, "value": price}
@@ -115,7 +130,8 @@ def _level_overlay_pair(tf_bars: pd.DataFrame, pos: int, price: float, label: st
         styles["line"] = line_styles
     if color:
         styles["text"] = {"color": color}
-    return [{"name": "simpleTag", "points": [point], "extendData": label,
+    text = _format_label(label, price, label_format)
+    return [{"name": "levelRay", "points": [point], "extendData": text,
             "lock": True, "styles": styles}]
 
 
@@ -124,7 +140,7 @@ def get_chart(
     overlays: list[str] | None = None, avwap: str = "(none)",
     show_pattern: bool = True, show_all_tf: bool = True,
     l1l2_color: str | None = None, l1l2_line_style: str | None = None,
-    l1l2_line_width: int | None = None,
+    l1l2_line_width: int | None = None, l1l2_label_format: str = "both",
 ) -> dict:
     isin = isin_for(con, symbol)
     if not isin:
@@ -200,13 +216,15 @@ def get_chart(
             for lvl, price, pos in (("L1", tf_active.l1_price, tf_active.l1_pos),
                                     ("L2", tf_active.l2_price, tf_active.l2_pos)):
                 server_overlays.extend(_level_overlay_pair(
-                    tf_bars, pos, price, f"{label_tf}-{lvl}", color, l1l2_line_style, l1l2_line_width))
+                    tf_bars, pos, price, f"{label_tf}-{lvl}", color, l1l2_line_style,
+                    l1l2_line_width, l1l2_label_format))
     elif show_pattern and active:
         for label, price, pos in (("L1", active.l1_price, active.l1_pos),
                                   ("L2", active.l2_price, active.l2_pos),
                                   ("neckline", active.neckline, active.neckline_pos)):
             server_overlays.extend(_level_overlay_pair(
-                pattern_bars_df, pos, price, label, l1l2_color, l1l2_line_style, l1l2_line_width))
+                pattern_bars_df, pos, price, label, l1l2_color, l1l2_line_style,
+                l1l2_line_width, l1l2_label_format))
 
     if avwap != "(none)" and "vwap" in bars_df.columns:
         lookback = 252 if tf == "D" else 52

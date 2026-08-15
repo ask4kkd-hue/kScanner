@@ -8,6 +8,13 @@ import { persist } from "zustand/middleware"
  * client-only preference with no reason to touch the server.
  */
 export type L1L2LineStyle = "solid" | "dashed" | "dotted"
+export type L1L2LabelFormat = "level" | "price" | "both"
+
+export const L1L2_LABEL_FORMAT_LABELS: Record<L1L2LabelFormat, string> = {
+  level: "Level only (L1)",
+  price: "Price only (1245.60)",
+  both: "Level + price (L1 1245.60)",
+}
 
 export type Theme = "black" | "terminal-green" | "kite-slate" | "oled-black" | "slate-blue"
 
@@ -28,7 +35,9 @@ interface UiPrefsState {
   l1l2Color: string
   l1l2LineStyle: L1L2LineStyle
   l1l2LineWidth: number
-  setL1L2Style: (patch: Partial<Pick<UiPrefsState, "l1l2Color" | "l1l2LineStyle" | "l1l2LineWidth">>) => void
+  l1l2LabelFormat: L1L2LabelFormat
+  setL1L2Style: (patch: Partial<Pick<UiPrefsState,
+    "l1l2Color" | "l1l2LineStyle" | "l1l2LineWidth" | "l1l2LabelFormat">>) => void
   theme: Theme
   setTheme: (theme: Theme) => void
 }
@@ -41,6 +50,7 @@ export const useUiPrefs = create<UiPrefsState>()(
       l1l2Color: "#D9A030",
       l1l2LineStyle: "dashed",
       l1l2LineWidth: 1,
+      l1l2LabelFormat: "both",
       setL1L2Style: (patch) => set(patch),
       theme: "black",
       setTheme: (theme) => set({ theme }),

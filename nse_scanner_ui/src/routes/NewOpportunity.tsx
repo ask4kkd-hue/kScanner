@@ -1,9 +1,12 @@
-import { Link } from "react-router-dom"
+import type { ColumnDef } from "@tanstack/react-table"
 
 import { Badge } from "@/components/ui/badge"
+import { DataTable } from "@/components/ui/data-table"
 import { PageTitle } from "@/components/ui/section"
 import { SymbolLink } from "@/components/ui/symbol-link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import type { OpportunitySignal } from "@/api/today"
+import { useOpenChart } from "@/store/chartDrawer"
 import { useToday } from "@/queries/today"
 
 const TIMEFRAME_LABEL: Record<string, string> = {
@@ -12,9 +15,38 @@ const TIMEFRAME_LABEL: Record<string, string> = {
   "1m": "Long term (1M)",
 }
 
-/** The full per-timeframe fresh-signal list — Dashboard only previews the top 3 of each. */
+function num(v: number | null, digits = 2): string {
+  return v === null ? "—" : v.toFixed(digits)
+}
+
+const COLUMNS: ColumnDef<OpportunitySignal, unknown>[] = [
+  {
+    accessorKey: "symbol", header: "Symbol",
+    cell: ({ getValue }) => <SymbolLink symbol={String(getValue())} />,
+  },
+  { accessorKey: "trigger_price", header: "Entry", cell: ({ getValue }) => num(getValue() as number) },
+  { accessorKey: "l1_price", header: "L1", cell: ({ getValue }) => num(getValue() as number | null) },
+  { accessorKey: "l2_price", header: "L2", cell: ({ getValue }) => num(getValue() as number | null) },
+  {
+    accessorKey: "l1_l2_distance", header: "L1-L2 dist",
+    cell: ({ getValue }) => num(getValue() as number | null),
+  },
+  { accessorKey: "neckline", header: "Neckline", cell: ({ getValue }) => num(getValue() as number | null) },
+  { accessorKey: "depth_pct", header: "Depth%", cell: ({ getValue }) => num(getValue() as number | null, 1) },
+  { accessorKey: "stop_suggested", header: "Stop", cell: ({ getValue }) => num(getValue() as number | null) },
+  { accessorKey: "target_suggested", header: "Target", cell: ({ getValue }) => num(getValue() as number | null) },
+  { accessorKey: "bottom_at_sma", header: "Bottom @", cell: ({ getValue }) => (getValue() as string | null) ?? "—" },
+  { accessorKey: "sma_stack", header: "SMA stack", cell: ({ getValue }) => (getValue() as string | null) ?? "—" },
+  {
+    accessorKey: "rs_rank_pct", header: "RS rank",
+    cell: ({ getValue }) => { const v = getValue() as number | null; return v === null ? "—" : v.toFixed(0) },
+  },
+]
+
+/** The full per-timeframe fresh-signal table — Dashboard only previews it. */
 export default function NewOpportunity() {
   const { data } = useToday()
+  const openChart = useOpenChart()
   if (!data) return null
   const { opportunities } = data
 
@@ -33,7 +65,7 @@ export default function NewOpportunity() {
           ))}
         </TabsList>
         {opportunities.map((block) => (
-          <TabsContent key={block.timeframe} value={block.timeframe}>
+          <TabsContent key={block.timeframe} value={block.timeframe} className="flex flex-col gap-2">
             {!block.built ? (
               <p className="text-muted-foreground text-sm">
                 Not built yet — run features.py for {block.timeframe}
@@ -46,20 +78,12 @@ export default function NewOpportunity() {
                   {block.total_signals} signals — {block.new_signals.length} new,{" "}
                   {block.already_tracked_count} already tracked
                 </p>
-                <div className="mt-1 flex flex-col gap-1">
-                  {block.new_signals.map((s) => (
-                    <div key={s.symbol} className="flex gap-4 text-sm">
-                      <SymbolLink symbol={s.symbol} className="w-28 font-semibold hover:text-primary hover:underline" />
-                      <span className="w-20">{s.trigger_price.toFixed(2)}</span>
-                      <span className="w-16">
-                        {s.rs_rank_pct !== null ? `RS ${s.rs_rank_pct.toFixed(0)}` : "RS —"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <Link to="/scan" className="text-primary mt-1 inline-block text-xs hover:underline">
-                  See all in Scan
-                </Link>
+                <DataTable
+                  columns={COLUMNS}
+                  data={block.new_signals}
+                  emptyMessage="No new signals."
+                  onRowClick={(row) => openChart(row.symbol)}
+                />
               </>
             )}
           </TabsContent>

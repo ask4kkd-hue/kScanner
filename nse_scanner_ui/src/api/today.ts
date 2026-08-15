@@ -26,6 +26,15 @@ export interface PositionRow {
 export interface OpportunitySignal {
   symbol: string
   trigger_price: number
+  l1_price: number | null
+  l2_price: number | null
+  l1_l2_distance: number | null
+  neckline: number | null
+  depth_pct: number | null
+  stop_suggested: number | null
+  target_suggested: number | null
+  bottom_at_sma: string | null
+  sma_stack: string | null
   rs_rank_pct: number | null
 }
 

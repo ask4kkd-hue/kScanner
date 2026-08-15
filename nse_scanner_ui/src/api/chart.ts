@@ -30,6 +30,7 @@ export interface ChartResponse {
 }
 
 export type L1L2LineStyle = "solid" | "dashed" | "dotted"
+export type L1L2LabelFormat = "level" | "price" | "both"
 
 export interface ChartQuery {
   timeframe?: "D" | "W" | "M"
@@ -42,6 +43,7 @@ export interface ChartQuery {
   l1l2_color?: string
   l1l2_line_style?: L1L2LineStyle
   l1l2_line_width?: number
+  l1l2_label_format?: L1L2LabelFormat
 }
 
 export const chartApi = {
@@ -59,6 +61,7 @@ export const chartApi = {
     if (q.l1l2_color) params.set("l1l2_color", q.l1l2_color)
     if (q.l1l2_line_style) params.set("l1l2_line_style", q.l1l2_line_style)
     if (q.l1l2_line_width) params.set("l1l2_line_width", String(q.l1l2_line_width))
+    if (q.l1l2_label_format) params.set("l1l2_label_format", q.l1l2_label_format)
     return api.get<ChartResponse>(`/api/chart/${encodeURIComponent(symbol)}?${params}`)
   },
 

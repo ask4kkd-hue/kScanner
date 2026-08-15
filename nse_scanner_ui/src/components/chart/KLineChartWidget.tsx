@@ -13,6 +13,39 @@ import { forwardRef, useEffect, useImperativeHandle, useRef } from "react"
  * must be reproduced exactly, not just similarly.
  */
 
+// Custom overlay for L1/L2/neckline markers: a ray starting AT the marked
+// candle and extending right (like klinecharts' built-in "priceLine"), but
+// with its text label living in the Y-axis gutter at the right edge (like
+// "simpleTag") instead of anchored at the point itself. Neither built-in
+// overlay alone gave both — priceLine's own text sits ON the anchor point
+// (the exact overlap this was built to fix), simpleTag's line spans the
+// full chart width instead of starting at the candle. Registered once at
+// module load, not per chart instance — registerOverlay is a global.
+kc.registerOverlay({
+  name: "levelRay",
+  totalStep: 2,
+  createPointFigures: ({ coordinates, bounding }) => {
+    const point = coordinates[0]
+    if (!point) return []
+    return [{
+      type: "line",
+      attrs: { coordinates: [point, { x: bounding.width, y: point.y }] },
+      ignoreEvent: true,
+    }]
+  },
+  createYAxisFigures: ({ overlay, coordinates, bounding }) => {
+    const point = coordinates[0]
+    if (!point) return []
+    const raw = overlay.extendData
+    const text = typeof raw === "function" ? String((raw as (o: unknown) => unknown)(overlay)) : (raw ?? "")
+    return [{
+      type: "text",
+      attrs: { x: bounding.width, y: point.y, text: String(text), align: "right", baseline: "middle" },
+      ignoreEvent: true,
+    }]
+  },
+})
+
 const MAIN_PANE_INDICATORS = new Set(["MA", "EMA", "SMA", "BOLL", "SAR", "BBI"])
 
 // The six drawing tools, mapped to klinecharts' actual built-in overlay

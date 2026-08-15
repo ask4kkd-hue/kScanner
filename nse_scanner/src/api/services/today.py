@@ -26,20 +26,30 @@ def _tracked_symbols(con) -> set[str]:
     return set(held) | set(watched)
 
 
+def _num(v) -> float | None:
+    return float(v) if v is not None and v == v else None  # NaN != NaN
+
+
 def _latest_signals(con, timeframe: str):
     # signals_1d's key is (scan_date, isin, preset_name, timeframe) -- a symbol
     # matching more than one preset on the same day gets one row per preset.
     # "New Opportunities" cares whether a symbol has a fresh signal at all, not
     # how many presets happened to flag it, so this collapses to one row per
-    # symbol (trigger/stop/target are identical across presets for the same
-    # symbol+date since they come from the same underlying pattern, so ANY_VALUE
-    # is exact, not an approximation).
+    # symbol (trigger/L1/L2/stop/target/etc are identical across presets for
+    # the same symbol+date since they come from the same underlying pattern,
+    # so ANY_VALUE is exact, not an approximation).
     return con.execute("""
         WITH latest AS (SELECT MAX(scan_date) AS d FROM signals_1d WHERE timeframe = ?)
         SELECT s.symbol,
               ANY_VALUE(s.trigger_price) AS trigger_price,
+              ANY_VALUE(s.l1_price) AS l1_price,
+              ANY_VALUE(s.l2_price) AS l2_price,
+              ANY_VALUE(s.neckline) AS neckline,
+              ANY_VALUE(s.depth_pct) AS depth_pct,
               ANY_VALUE(s.stop_suggested) AS stop_suggested,
               ANY_VALUE(s.target_suggested) AS target_suggested,
+              ANY_VALUE(s.bottom_at_sma) AS bottom_at_sma,
+              ANY_VALUE(s.sma_stack) AS sma_stack,
               ANY_VALUE(f.rs_rank_pct) AS rs_rank_pct
         FROM signals_1d s
         JOIN latest ON s.scan_date = latest.d
@@ -94,8 +104,23 @@ def _opportunities(con, tracked: set[str]) -> list[dict]:
             # Full list, uncapped -- the New Opportunity screen needs all of
             # it; Dashboard's own condensed preview slices client-side.
             "new_signals": [
-                {"symbol": r["symbol"], "trigger_price": float(r["trigger_price"]),
-                 "rs_rank_pct": float(r["rs_rank_pct"]) if r["rs_rank_pct"] == r["rs_rank_pct"] else None}
+                {
+                    "symbol": r["symbol"],
+                    "trigger_price": float(r["trigger_price"]),
+                    "l1_price": _num(r["l1_price"]),
+                    "l2_price": _num(r["l2_price"]),
+                    "l1_l2_distance": (
+                        float(r["l1_price"]) - float(r["l2_price"])
+                        if r["l1_price"] == r["l1_price"] and r["l2_price"] == r["l2_price"] else None
+                    ),
+                    "neckline": _num(r["neckline"]),
+                    "depth_pct": _num(r["depth_pct"]),
+                    "stop_suggested": _num(r["stop_suggested"]),
+                    "target_suggested": _num(r["target_suggested"]),
+                    "bottom_at_sma": r["bottom_at_sma"] if r["bottom_at_sma"] == r["bottom_at_sma"] else None,
+                    "sma_stack": r["sma_stack"] if r["sma_stack"] == r["sma_stack"] else None,
+                    "rs_rank_pct": _num(r["rs_rank_pct"]),
+                }
                 for _, r in new_sig.iterrows()
             ],
         })

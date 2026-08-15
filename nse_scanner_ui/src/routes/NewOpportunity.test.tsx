@@ -18,7 +18,15 @@ const FIXTURE: TodayResponse = {
   total_open_pnl: 0,
   at_risk_count: 0,
   opportunities: [
-    { timeframe: "1d", built: true, total_signals: 2, new_signals: [{ symbol: "TCS", trigger_price: 4000, rs_rank_pct: 88 }], already_tracked_count: 1 },
+    {
+      timeframe: "1d", built: true, total_signals: 2, already_tracked_count: 1,
+      new_signals: [{
+        symbol: "TCS", trigger_price: 4000, l1_price: 3900, l2_price: 3950,
+        l1_l2_distance: -50, neckline: 4100, depth_pct: 5.0,
+        stop_suggested: 3850, target_suggested: 4300,
+        bottom_at_sma: "at_sma50", sma_stack: "mixed", rs_rank_pct: 88,
+      }],
+    },
     { timeframe: "1w", built: false, total_signals: 0, new_signals: [], already_tracked_count: 0 },
     { timeframe: "1m", built: false, total_signals: 0, new_signals: [], already_tracked_count: 0 },
   ],
