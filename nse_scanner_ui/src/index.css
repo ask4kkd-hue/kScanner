@@ -1,0 +1,102 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * Design tokens ported verbatim from nse_scanner/src/web/theme.py — not new
+ * colors, the same dark surface / single accent / TradingView candle colors
+ * (checked for colorblind-safe separation, not eyeballed) the NiceGUI UI
+ * already validated. This app is dark-first (theme.py calls
+ * ui.dark_mode().enable() unconditionally) so the dark values are the ONLY
+ * values — no light theme is defined, matching the source of truth.
+ */
+:root {
+  --background: #0f1211;       /* theme.py SURFACE */
+  --foreground: #e4e9e7;       /* theme.py TEXT_PRIMARY */
+  --card: #0f1211;
+  --card-foreground: #e4e9e7;
+  --popover: #151918;
+  --popover-foreground: #e4e9e7;
+  --primary: #2f6f62;          /* theme.py ACCENT — HOLD / "current" / good */
+  --primary-foreground: #e4e9e7;
+  --secondary: #232928;        /* theme.py BORDER */
+  --secondary-foreground: #e4e9e7;
+  --muted: #232928;
+  --muted-foreground: #8b9694; /* theme.py TEXT_MUTED */
+  --accent: #232928;           /* shadcn's neutral hover-state token — distinct
+                                  from our brand accent above, which maps to
+                                  --primary instead */
+  --accent-foreground: #e4e9e7;
+  --destructive: #c4553b;      /* theme.py CRITICAL — REVIEW / "stale" / bad */
+  --destructive-foreground: #e4e9e7;
+  --border: #232928;
+  --input: #232928;
+  --ring: #2f6f62;
+  --radius: 0.5rem;
+
+  /* App-specific tokens beyond shadcn's default set */
+  --warning: #d9a030;          /* theme.py WARNING — WATCH */
+  --candle-up: #26a69a;
+  --candle-down: #ef5350;
+  --ref-line: #c3c2b7;         /* theme.py REF_LINE_COLOR */
+  --sma-10: #3987e5;
+  --sma-20: #d95926;
+  --sma-50: #c98500;
+  --sma-100: #d55181;
+  --sma-200: #9085e9;
+  --avwap: #199e70;
+
+  --status-hold: var(--primary);
+  --status-watch: var(--warning);
+  --status-review: var(--destructive);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-warning: var(--warning);
+  --color-candle-up: var(--candle-up);
+  --color-candle-down: var(--candle-down);
+  --color-ref-line: var(--ref-line);
+  --color-avwap: var(--avwap);
+  --color-status-hold: var(--status-hold);
+  --color-status-watch: var(--status-watch);
+  --color-status-review: var(--status-review);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-feature-settings: "tnum" 1, "cv05" 1;
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.015em;
+  font-weight: 600;
+}
+
+.font-mono-tabular {
+  font-family: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, monospace;
+}
