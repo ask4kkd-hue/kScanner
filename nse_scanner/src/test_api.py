@@ -87,7 +87,57 @@ check("pnl has all five keys", set(body["pnl"].keys()) == {
 }, str(body["pnl"]))
 
 # =====================================================================
-print("\n[4] CORS is configured for the Vite dev server")
+print("\n[4] Chart router")
+
+r = client.get("/api/instruments/symbols")
+check("GET /api/instruments/symbols -> 200", r.status_code == 200, r.text)
+symbols = r.json()
+check("returns a non-empty list of symbols", isinstance(symbols, list) and len(symbols) > 0, str(len(symbols)))
+
+# Find a symbol with enough history for a real chart (avoids the very
+# newest listings, which legitimately have too little history yet).
+test_symbol = "RELIANCE" if "RELIANCE" in symbols else symbols[0]
+
+r = client.get(f"/api/chart/{test_symbol}")
+check(f"GET /api/chart/{test_symbol} -> 200", r.status_code == 200, r.text)
+body = r.json()
+check("has bars", len(body.get("bars", [])) > 0, str(len(body.get("bars", []))))
+check("bar has OHLCV fields", set(body["bars"][0].keys()) >= {"date", "open", "high", "low", "close", "volume"},
+     str(body["bars"][0]))
+check("has metrics.pattern_found (bool)", isinstance(body["metrics"]["pattern_found"], bool), str(body["metrics"]))
+check("server_overlays is a list", isinstance(body["server_overlays"], list))
+check("user_drawings is a list", isinstance(body["user_drawings"], list))
+
+r = client.get("/api/chart/__NOT_A_REAL_SYMBOL__")
+check("unknown symbol -> 404", r.status_code == 404, r.text)
+
+r = client.get(f"/api/chart/{test_symbol}", params={"timeframe": "M"})
+check(f"GET /api/chart/{test_symbol}?timeframe=M -> 200", r.status_code == 200, r.text)
+
+# Drawings round trip: PUT then GET then DELETE, on a harmless test timeframe
+# key so it never collides with a symbol/timeframe the user might actually
+# be viewing (drawings are keyed per isin+timeframe, "9999w" isn't a real one).
+test_tf = "9999w"
+sample_overlay = [{"name": "horizontalStraightLine", "points": [{"value": 123.45}], "lock": False}]
+r = client.put(f"/api/chart/{test_symbol}/drawings", params={"timeframe": test_tf}, json=sample_overlay)
+check("PUT drawings -> 200", r.status_code == 200, r.text)
+r = client.get(f"/api/chart/{test_symbol}/drawings", params={"timeframe": test_tf})
+check("GET drawings round-trips what was saved", r.json() == sample_overlay, r.text)
+r = client.delete(f"/api/chart/{test_symbol}/drawings", params={"timeframe": test_tf})
+check("DELETE drawings -> 200", r.status_code == 200, r.text)
+r = client.get(f"/api/chart/{test_symbol}/drawings", params={"timeframe": test_tf})
+check("drawings are empty after delete", r.json() == [], r.text)
+
+# DELETE-via-service only ever sets payload to "[]" (matches the NiceGUI
+# original's "reset" semantics) — it never removes the row, so the sentinel
+# test_tf row would otherwise sit in the real drawings table forever.
+# Since this test runs in-process against the app's own master connection,
+# clean it up directly rather than leaving test fixture data in production.
+from api.deps import get_master  # noqa: E402
+get_master().execute("DELETE FROM drawings WHERE timeframe = ?", [test_tf])
+
+# =====================================================================
+print("\n[5] CORS is configured for the Vite dev server")
 r = client.options("/api/data/table-counts", headers={
     "Origin": "http://localhost:5173",
     "Access-Control-Request-Method": "GET",
