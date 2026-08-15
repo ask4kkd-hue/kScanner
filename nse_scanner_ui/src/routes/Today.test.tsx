@@ -43,14 +43,25 @@ function renderToday() {
 }
 
 describe("Today screen", () => {
-  it("renders positions, opportunities, and pnl from the API", async () => {
+  it("renders positions, the default (1D) opportunity tab, and pnl from the API", async () => {
     vi.mocked(todayApi.get).mockResolvedValue(FIXTURE)
     renderToday()
 
     expect(await screen.findByText("RELIANCE")).toBeInTheDocument()
     expect(screen.getByText("TCS")).toBeInTheDocument()
-    expect(screen.getByText("Not built yet — run features.py for 1w")).toBeInTheDocument()
     expect(screen.getByText("Total open P&L: ₹3,250")).toBeInTheDocument()
+  })
+
+  it("switching the opportunities tab reveals that timeframe's content", async () => {
+    vi.mocked(todayApi.get).mockResolvedValue(FIXTURE)
+    const user = userEvent.setup()
+    renderToday()
+
+    await screen.findByText("TCS") // 1D tab content, active by default
+    expect(screen.queryByText("Not built yet — run features.py for 1w")).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole("tab", { name: /Medium term \(1W\)/ }))
+    expect(await screen.findByText("Not built yet — run features.py for 1w")).toBeInTheDocument()
   })
 
   it("clicking a symbol opens the chart drawer with that symbol", async () => {

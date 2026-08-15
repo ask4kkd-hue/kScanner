@@ -1,15 +1,17 @@
 import { Link } from "react-router-dom"
 
+import { Badge } from "@/components/ui/badge"
 import { EquitySparkline } from "@/components/ui/equity-chart"
 import { PageTitle, Section } from "@/components/ui/section"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { SymbolLink } from "@/components/ui/symbol-link"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToday } from "@/queries/today"
 
 const TIMEFRAME_LABEL: Record<string, string> = {
-  "1d": "Short term — 1D signals",
-  "1w": "Medium term — 1W signals",
-  "1m": "Long term — 1M signals",
+  "1d": "Short term (1D)",
+  "1w": "Medium term (1W)",
+  "1m": "Long term (1M)",
 }
 
 function inr(n: number): string {
@@ -75,9 +77,19 @@ export default function Today() {
 
       {/* 3. NEW OPPORTUNITIES */}
       <Section title="New Opportunities">
-        <div className="flex flex-col gap-3">
+        <Tabs defaultValue={opportunities[0]?.timeframe ?? "1d"}>
+          <TabsList>
+            {opportunities.map((block) => (
+              <TabsTrigger key={block.timeframe} value={block.timeframe} className="gap-2">
+                {TIMEFRAME_LABEL[block.timeframe]}
+                {block.built && block.new_signals.length > 0 && (
+                  <Badge className="h-4 px-1.5 text-[10px]">{block.new_signals.length}</Badge>
+                )}
+              </TabsTrigger>
+            ))}
+          </TabsList>
           {opportunities.map((block) => (
-            <Section key={block.timeframe} title={TIMEFRAME_LABEL[block.timeframe]}>
+            <TabsContent key={block.timeframe} value={block.timeframe}>
               {!block.built ? (
                 <p className="text-muted-foreground text-sm">
                   Not built yet — run features.py for {block.timeframe}
@@ -106,9 +118,9 @@ export default function Today() {
                   </Link>
                 </>
               )}
-            </Section>
+            </TabsContent>
           ))}
-        </div>
+        </Tabs>
       </Section>
 
       {/* 4. P&L */}
