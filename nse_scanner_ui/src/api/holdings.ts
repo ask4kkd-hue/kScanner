@@ -1,0 +1,46 @@
+import { api } from "./client"
+
+export interface PositionRow {
+  trade_id: number
+  symbol: string
+  entry_date: string
+  entry_price: number
+  qty: number
+  stop_price: number
+  close: number | null
+  days_held: number | null
+  pnl_pct: number | null
+  pnl_rupees: number | null
+  r_multiple: number | null
+  mae_pct: number | null
+  mfe_pct: number | null
+  status: "HOLD" | "WATCH" | "REVIEW"
+  reasons: string[]
+}
+
+export interface TradeOpenRequest {
+  symbol: string
+  entry_date: string
+  entry_price: number
+  qty: number
+  stop_price: number
+  target_price?: number
+  preset_name?: string
+  thesis?: string
+}
+
+export interface TradeCloseRequest {
+  exit_date: string
+  exit_price: number
+  exit_reason: "target" | "stop" | "time_stop" | "discretionary"
+  followed_plan: boolean
+  review_note?: string
+  tags?: string[]
+}
+
+export const holdingsApi = {
+  openPositions: () => api.get<PositionRow[]>("/api/trades/open"),
+  open: (body: TradeOpenRequest) => api.post<{ trade_id: number }>("/api/trades", body),
+  close: (tradeId: number, body: TradeCloseRequest) =>
+    api.post<{ trade_id: number; net_pnl: number }>(`/api/trades/${tradeId}/close`, body),
+}

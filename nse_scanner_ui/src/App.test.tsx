@@ -34,7 +34,7 @@ describe("App shell", () => {
   })
 
   it("renders a not-yet-built placeholder for an unwired screen", () => {
-    renderApp("/watchlist")
-    expect(screen.getByText(/Coming in Phase 5/)).toBeInTheDocument()
+    renderApp("/performance")
+    expect(screen.getByText(/Coming in Phase 6/)).toBeInTheDocument()
   })
 })

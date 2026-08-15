@@ -10,6 +10,7 @@ the exact same thing.
 from __future__ import annotations
 
 import advisor
+import journal as jr
 
 _STATUS_ORDER = {"REVIEW": 0, "WATCH": 1, "HOLD": 2}
 
@@ -22,7 +23,14 @@ def _latest_close(con, isin: str) -> float | None:
 
 
 def list_open_positions(con) -> list[dict]:
-    """Returns rows shaped for schemas.today.PositionRow, sorted REVIEW>WATCH>HOLD."""
+    """Returns rows shaped for schemas.today.PositionRow, sorted REVIEW>WATCH>HOLD.
+
+    Refreshes mae_pct/mfe_pct for open trades first (jr.update_open_trades) —
+    both web/pages/today.py and web/pages/holdings.py did this before reading
+    trades, so this shared function does it once rather than leaving it to
+    each caller to remember."""
+    jr.update_open_trades(con)
+
     open_trades = con.execute("""
         SELECT trade_id, isin, symbol, entry_date, entry_price, qty, stop_price
         FROM trades WHERE status = 'open'
@@ -33,8 +41,10 @@ def list_open_positions(con) -> list[dict]:
         s = advisor.position_status(con, int(t["trade_id"]))
         close = _latest_close(con, t["isin"])
         pnl_pct = (close / t["entry_price"] - 1.0) * 100.0 if close else None
+        pnl_rupees = (close - t["entry_price"]) * t["qty"] if close is not None else None
         risk = t["entry_price"] - t["stop_price"]
         r_mult = (close - t["entry_price"]) / risk if close and risk > 0 else None
+        m = s["metrics"]
         rows.append({
             "trade_id": int(t["trade_id"]),
             "symbol": t["symbol"],
@@ -42,9 +52,13 @@ def list_open_positions(con) -> list[dict]:
             "entry_price": float(t["entry_price"]),
             "qty": int(t["qty"]),
             "stop_price": float(t["stop_price"]),
-            "days_held": s["metrics"].get("days_held"),
+            "close": close,
+            "days_held": m.get("days_held"),
             "pnl_pct": pnl_pct,
+            "pnl_rupees": pnl_rupees,
             "r_multiple": r_mult,
+            "mae_pct": m.get("mae_pct"),
+            "mfe_pct": m.get("mfe_pct"),
             "status": s["status"],
             "reasons": s["reasons"],
             "_close": close,  # kept for total_pnl calc in the today service; not in the schema

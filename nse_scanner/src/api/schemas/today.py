@@ -23,9 +23,13 @@ class PositionRow(BaseModel):
     entry_price: float
     qty: int
     stop_price: float
+    close: float | None
     days_held: int | None
     pnl_pct: float | None
+    pnl_rupees: float | None
     r_multiple: float | None
+    mae_pct: float | None
+    mfe_pct: float | None
     status: str  # HOLD | WATCH | REVIEW
     reasons: list[str]
 

@@ -266,6 +266,14 @@ def update_open_trades(con, as_of: date | None = None) -> int:
     open_t = con.execute("SELECT * FROM trades WHERE status = 'open'").df()
     n = 0
     for _, t in open_t.iterrows():
+        # A trade with no isin (open_trade() doesn't reject an unknown
+        # symbol — it stores isin=NULL) reads back as NaN via pandas. Passed
+        # straight through as a query parameter, DuckDB infers a DOUBLE
+        # parameter type from the float NaN and tries to cast the isin
+        # VARCHAR column to match, which throws for every real ISIN in the
+        # table — not just a no-op for this one row.
+        if pd.isna(t["isin"]):
+            continue
         last = con.execute("""
             SELECT close, date FROM bars_1d WHERE isin = ?
             ORDER BY date DESC LIMIT 1

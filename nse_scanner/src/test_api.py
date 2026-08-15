@@ -215,7 +215,54 @@ r = client.post("/api/watchlist", json={"symbol": "__NOT_A_REAL_SYMBOL__"})
 check("adding an unknown symbol -> 404", r.status_code == 404, r.text)
 
 # =====================================================================
-print("\n[7] CORS is configured for the Vite dev server")
+print("\n[7] Holdings router")
+
+r = client.get("/api/trades/open")
+check("GET /api/trades/open -> 200", r.status_code == 200, r.text)
+check("returns a list", isinstance(r.json(), list), r.text)
+
+r = client.post("/api/trades", json={
+    "symbol": "__NOT_A_REAL_SYMBOL__", "entry_date": "2024-01-01",
+    "entry_price": 100.0, "qty": 1, "stop_price": 95.0,
+})
+check("opening a trade for an unknown symbol -> 404 (rejected, nothing written)", r.status_code == 404, r.text)
+
+# Full open -> appears in /open -> close lifecycle, against a REAL symbol
+# (open_trade needs a real isin to snapshot features against) — this
+# writes real rows to trades/trade_snapshot, so it is EXPLICITLY cleaned
+# up afterward via direct SQL, the same pattern already used for the
+# drawings and config.yaml tests above. Never left in the user's real
+# trade journal.
+r = client.post("/api/trades", json={
+    "symbol": test_symbol, "entry_date": "2024-01-02",
+    "entry_price": 1.0, "qty": 1, "stop_price": 0.5, "preset_name": "__test_api_fixture__",
+})
+check("POST /api/trades (real symbol) -> 200", r.status_code == 200, r.text)
+test_trade_id = r.json().get("trade_id")
+check("returns a trade_id", isinstance(test_trade_id, int), r.text)
+
+r = client.get("/api/trades/open")
+check("newly-opened test trade appears in /api/trades/open",
+     any(p["trade_id"] == test_trade_id for p in r.json()), r.text)
+
+r = client.post(f"/api/trades/{test_trade_id}/close", json={
+    "exit_date": "2024-01-03", "exit_price": 1.1, "exit_reason": "discretionary", "tags": ["oversized"],
+})
+check(f"POST /api/trades/{test_trade_id}/close -> 200", r.status_code == 200, r.text)
+
+r = client.get("/api/trades/open")
+check("closed test trade no longer appears in /api/trades/open",
+     not any(p["trade_id"] == test_trade_id for p in r.json()), r.text)
+
+get_master().execute("DELETE FROM trade_tags WHERE trade_id = ?", [test_trade_id])
+get_master().execute("DELETE FROM trade_snapshot WHERE trade_id = ?", [test_trade_id])
+get_master().execute("DELETE FROM trades WHERE trade_id = ?", [test_trade_id])
+still_there = get_master().execute(
+    "SELECT COUNT(*) FROM trades WHERE trade_id = ?", [test_trade_id]).fetchone()[0]
+check("test trade fully removed from the real trades table after cleanup", still_there == 0)
+
+# =====================================================================
+print("\n[8] CORS is configured for the Vite dev server")
 r = client.options("/api/data/table-counts", headers={
     "Origin": "http://localhost:5173",
     "Access-Control-Request-Method": "GET",

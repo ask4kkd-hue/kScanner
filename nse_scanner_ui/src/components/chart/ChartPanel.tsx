@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { chartApi } from "@/api/chart"
 import { SymbolCombobox } from "@/components/chart/SymbolCombobox"
 import { KLineChartWidget, type KLineChartHandle, type OverlayPayload } from "@/components/chart/KLineChartWidget"
+import { useChartSymbols } from "@/queries/chart"
 
 const TIMEFRAMES = { D: "1d", W: "1w", M: "1m" } as const
 const CHART_TYPES = ["Candle", "Line", "Heikin Ashi", "Renko"] as const
@@ -38,7 +39,7 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
     if (initialSymbol) setSymbol(initialSymbol)
   }, [initialSymbol])
 
-  const symbolsQuery = useQuery({ queryKey: ["chart", "symbols"], queryFn: chartApi.symbols })
+  const symbolsQuery = useChartSymbols()
 
   const chartQuery = useQuery({
     queryKey: ["chart", symbol, timeframe, bars, chartType, overlays, avwap, showPattern, showAllTf],

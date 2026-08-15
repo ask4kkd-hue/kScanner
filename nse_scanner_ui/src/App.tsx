@@ -7,9 +7,11 @@ import { HealthRail } from "@/components/shell/HealthRail"
 import { Nav } from "@/components/shell/Nav"
 import Chart from "@/routes/Chart"
 import Data from "@/routes/Data"
+import Holdings from "@/routes/Holdings"
 import Placeholder from "@/routes/Placeholder"
 import Scan from "@/routes/Scan"
 import Today from "@/routes/Today"
+import Watchlist from "@/routes/Watchlist"
 
 function Layout({ children }: { children: ReactNode }) {
   return (
@@ -34,8 +36,8 @@ export default function App() {
       <Route path="/scan" element={<Layout><Scan /></Layout>} />
       <Route path="/chart" element={<Layout><Chart /></Layout>} />
       <Route path="/chart/:symbol" element={<Layout><Chart /></Layout>} />
-      <Route path="/watchlist" element={<Layout><Placeholder screen="Watchlist" phase="Phase 5" /></Layout>} />
-      <Route path="/holdings" element={<Layout><Placeholder screen="Holdings" phase="Phase 5" /></Layout>} />
+      <Route path="/watchlist" element={<Layout><Watchlist /></Layout>} />
+      <Route path="/holdings" element={<Layout><Holdings /></Layout>} />
       <Route path="/performance" element={<Layout><Placeholder screen="Performance" phase="Phase 6" /></Layout>} />
       <Route path="/backtest" element={<Layout><Placeholder screen="Backtest" phase="Phase 6" /></Layout>} />
       <Route path="/data" element={<Layout><Data /></Layout>} />

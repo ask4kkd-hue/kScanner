@@ -24,7 +24,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 
 from api.deps import get_master  # noqa: E402
-from api.routers import chart, data, scan, today, watchlist  # noqa: E402
+from api.routers import chart, data, holdings, scan, today, watchlist  # noqa: E402
 
 
 @asynccontextmanager
@@ -53,6 +53,7 @@ app.include_router(today.router, prefix="/api")
 app.include_router(chart.router, prefix="/api")
 app.include_router(scan.router, prefix="/api")
 app.include_router(watchlist.router, prefix="/api")
+app.include_router(holdings.router, prefix="/api")
 
 
 @app.get("/api/health")
