@@ -55,6 +55,11 @@ COSTS = CFG["costs"]
 PAT = CFG["pattern"]
 
 
+def _pyfloat(x) -> float | None:
+    """None/NaN-safe cast to a native python float (never a numpy scalar)."""
+    return None if x is None else float(x)
+
+
 # =====================================================================
 # COSTS
 # =====================================================================
@@ -421,10 +426,12 @@ def run_backtest(
                     atr_series),
                 "sma_stack": row.get("sma_stack"),
                 "regime_state": None,
-                "rs_rank_pct": row.get("rs_rank_pct"),
-                "adr_pct": row.get("adr_pct20"),
-                "deliv_pct": row.get("deliv_pct_sma20"),
-                "dist_sma200_pct": row.get("dist_sma200_pct"),
+                # cast off numpy.float32 -- DuckDB's pandas scan can't convert
+                # numpy scalar objects sitting in an object-dtype column
+                "rs_rank_pct": _pyfloat(row.get("rs_rank_pct")),
+                "adr_pct": _pyfloat(row.get("adr_pct20")),
+                "deliv_pct": _pyfloat(row.get("deliv_pct_sma20")),
+                "dist_sma200_pct": _pyfloat(row.get("dist_sma200_pct")),
                 "depth_pct": p.depth_pct,
                 "separation": p.separation,
             })
@@ -482,13 +489,18 @@ def compute_metrics(con, run_id: str) -> dict:
                       - pd.to_datetime(t["entry_date"]).min()).days / 365.25)
     cagr = ((1 + total_ret / 100.0) ** (1 / years) - 1) * 100.0
 
+    # r_multiple/mae_pct/mfe_pct are FLOAT (4-byte) columns in backtest_trades,
+    # so pandas reductions over them (.mean()/.median()) come back as
+    # numpy.float32 scalars -- DuckDB's parameterized INSERT can't take those
+    # directly, only native python floats. Cast everything on the way out.
     m = dict(
-        run_id=run_id, trades=len(t), win_rate=win_rate,
-        expectancy_r=expectancy, avg_win_r=avg_win_r, avg_loss_r=avg_loss_r,
-        profit_factor=pf if np.isfinite(pf) else 999.0, max_dd_pct=dd,
-        total_return_pct=total_ret, cagr_pct=cagr,
-        median_hold_days=t["holding_days"].median(),
-        median_mae=t["mae_pct"].median(), median_mfe=t["mfe_pct"].median(),
+        run_id=run_id, trades=int(len(t)), win_rate=_pyfloat(win_rate),
+        expectancy_r=_pyfloat(expectancy), avg_win_r=_pyfloat(avg_win_r),
+        avg_loss_r=_pyfloat(avg_loss_r),
+        profit_factor=_pyfloat(pf if np.isfinite(pf) else 999.0), max_dd_pct=_pyfloat(dd),
+        total_return_pct=_pyfloat(total_ret), cagr_pct=_pyfloat(cagr),
+        median_hold_days=_pyfloat(t["holding_days"].median()),
+        median_mae=_pyfloat(t["mae_pct"].median()), median_mfe=_pyfloat(t["mfe_pct"].median()),
         benchmark_cagr_pct=None,
     )
     con.execute("DELETE FROM backtest_metrics WHERE run_id = ?", [run_id])

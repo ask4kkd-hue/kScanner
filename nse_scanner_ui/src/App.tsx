@@ -5,10 +5,11 @@ import { ChartDrawer } from "@/components/chart/ChartDrawer"
 import { Header } from "@/components/shell/Header"
 import { HealthRail } from "@/components/shell/HealthRail"
 import { Nav } from "@/components/shell/Nav"
+import Backtest from "@/routes/Backtest"
 import Chart from "@/routes/Chart"
 import Data from "@/routes/Data"
 import Holdings from "@/routes/Holdings"
-import Placeholder from "@/routes/Placeholder"
+import Performance from "@/routes/Performance"
 import Scan from "@/routes/Scan"
 import Today from "@/routes/Today"
 import Watchlist from "@/routes/Watchlist"
@@ -38,8 +39,8 @@ export default function App() {
       <Route path="/chart/:symbol" element={<Layout><Chart /></Layout>} />
       <Route path="/watchlist" element={<Layout><Watchlist /></Layout>} />
       <Route path="/holdings" element={<Layout><Holdings /></Layout>} />
-      <Route path="/performance" element={<Layout><Placeholder screen="Performance" phase="Phase 6" /></Layout>} />
-      <Route path="/backtest" element={<Layout><Placeholder screen="Backtest" phase="Phase 6" /></Layout>} />
+      <Route path="/performance" element={<Layout><Performance /></Layout>} />
+      <Route path="/backtest" element={<Layout><Backtest /></Layout>} />
       <Route path="/data" element={<Layout><Data /></Layout>} />
     </Routes>
   )

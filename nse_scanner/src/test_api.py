@@ -262,7 +262,98 @@ still_there = get_master().execute(
 check("test trade fully removed from the real trades table after cleanup", still_there == 0)
 
 # =====================================================================
-print("\n[8] CORS is configured for the Vite dev server")
+print("\n[8] Performance router")
+
+r = client.get("/api/performance/summary")
+check("GET /api/performance/summary -> 200", r.status_code == 200, r.text)
+check("has min_trades_for_conclusion", "min_trades_for_conclusion" in r.json(), r.text)
+
+r = client.get("/api/performance/equity-curve")
+check("GET /api/performance/equity-curve -> 200", r.status_code == 200, r.text)
+check("returns a list", isinstance(r.json(), list), r.text)
+
+r = client.get("/api/performance/attribution")
+check("GET /api/performance/attribution -> 200", r.status_code == 200, r.text)
+attr = r.json()
+check("has by_preset/by_timeframe/by_sector/bottom_at_sma_note", set(attr.keys()) == {
+    "by_preset", "by_timeframe", "by_sector", "bottom_at_sma_note",
+}, str(attr.keys()))
+check("bottom_at_sma_note explains why, doesn't fake the cut",
+     "not" in attr["bottom_at_sma_note"].lower(), attr["bottom_at_sma_note"])
+
+r = client.get("/api/performance/adherence")
+check("GET /api/performance/adherence -> 200", r.status_code == 200, r.text)
+
+r = client.get("/api/performance/tags")
+check("GET /api/performance/tags -> 200", r.status_code == 200, r.text)
+
+r = client.get("/api/performance/snapshot-metrics")
+check("GET /api/performance/snapshot-metrics -> 200", r.status_code == 200, r.text)
+snapshot_metrics = r.json()
+check("returns the 5 known metrics", len(snapshot_metrics) == 5, str(snapshot_metrics))
+
+r = client.get("/api/performance/snapshot", params={"metric": snapshot_metrics[0]})
+check("GET /api/performance/snapshot -> 200", r.status_code == 200, r.text)
+
+r = client.get("/api/performance/snapshot", params={"metric": "not_a_real_metric"})
+check("unknown snapshot metric -> 400", r.status_code == 400, r.text)
+
+r = client.get("/api/performance/presets-traded")
+check("GET /api/performance/presets-traded -> 200", r.status_code == 200, r.text)
+check("empty (no closed trades in this DB) -> []", r.json() == [], r.text)
+
+# =====================================================================
+print("\n[9] Backtest router")
+
+r = client.get("/api/backtest/config")
+check("GET /api/backtest/config -> 200", r.status_code == 200, r.text)
+bt_config = r.json()
+check("has presets/entry_variants/exit_variants/min_trades_for_conclusion", set(bt_config.keys()) == {
+    "presets", "entry_variants", "exit_variants", "min_trades_for_conclusion",
+}, str(bt_config.keys()))
+
+# A real single run, but capped to a small symbol slice (limit_symbols) to
+# keep this test suite's normal runtime reasonable — sweep/marginal (up to
+# 30 and 8 full backtests respectively) are deliberately NOT exercised here
+# for the same reason, verified once by hand against a live server instead.
+#
+# The user explicitly asked earlier in this project never to delete
+# backtest results ("we will use it for comparison... evolving phase") — so
+# this run is tagged with an unmistakable label and cleaned up by matching
+# ONLY that exact label afterward, never a broad sweep of backtest_runs
+# that could catch a real run.
+BT_TEST_LABEL = "__test_api_fixture__"
+r = client.post("/api/backtest/run", json={
+    "preset_name": "w_naked", "entry_variant": bt_config["entry_variants"][0],
+    "exit_variant": bt_config["exit_variants"][0], "sample": "in", "limit_symbols": 50,
+    "label": BT_TEST_LABEL,
+})
+check("POST /api/backtest/run (limit_symbols=50) -> 200", r.status_code == 200, r.text)
+bt_run_id = r.json().get("run_id")
+check("returns a run_id", isinstance(bt_run_id, str) and len(bt_run_id) > 0, r.text)
+
+r = client.get(f"/api/backtest/{bt_run_id}")
+check(f"GET /api/backtest/{bt_run_id} -> 200", r.status_code == 200, r.text)
+run_body = r.json()
+check("has metrics/curves/min_trades_for_conclusion", set(run_body.keys()) == {
+    "metrics", "curves", "min_trades_for_conclusion",
+}, str(run_body.keys()))
+
+r = client.get("/api/backtest/this-run-id-does-not-exist")
+check("unknown run_id -> 200 with metrics=null (not an error — a run that never happened)",
+     r.status_code == 200 and r.json()["metrics"] is None, r.text)
+
+for table in ("backtest_curves", "backtest_trades", "backtest_metrics"):
+    get_master().execute(f"DELETE FROM {table} WHERE run_id = ?", [bt_run_id])
+get_master().execute(
+    "DELETE FROM backtest_runs WHERE run_id = ? AND label = ?", [bt_run_id, BT_TEST_LABEL])
+still_there = get_master().execute(
+    "SELECT COUNT(*) FROM backtest_runs WHERE run_id = ?", [bt_run_id]).fetchone()[0]
+check("test backtest run fully removed (matched by run_id AND its unique label only)",
+     still_there == 0)
+
+# =====================================================================
+print("\n[10] CORS is configured for the Vite dev server")
 r = client.options("/api/data/table-counts", headers={
     "Origin": "http://localhost:5173",
     "Access-Control-Request-Method": "GET",

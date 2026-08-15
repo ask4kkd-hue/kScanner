@@ -33,8 +33,15 @@ describe("App shell", () => {
     expect(screen.getByText("Validation failures (last 30 days)")).toBeInTheDocument()
   })
 
-  it("renders a not-yet-built placeholder for an unwired screen", () => {
+  it("renders the Performance screen's tabs at /performance", () => {
     renderApp("/performance")
-    expect(screen.getByText(/Coming in Phase 6/)).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Performance" })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "Overview" })).toBeInTheDocument()
+  })
+
+  it("renders the Backtest screen's tabs at /backtest", () => {
+    renderApp("/backtest")
+    expect(screen.getByRole("heading", { name: "Backtest" })).toBeInTheDocument()
+    expect(screen.getByRole("tab", { name: "Single run" })).toBeInTheDocument()
   })
 })
