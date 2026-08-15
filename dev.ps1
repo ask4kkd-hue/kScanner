@@ -28,11 +28,24 @@ Stop-PortListener -Port 8000 -Label "Backend"
 Stop-PortListener -Port 5173 -Label "Frontend"
 Start-Sleep -Seconds 1
 
+# Antivirus HTTPS scanning (AVG etc.) breaks yfinance's curl_cffi backend.
+# run_daily.bat/.sh already work around this for the CLI path; the backend
+# needs the same fix, or every yfinance call silently fails ("possibly
+# delisted; no price data found") and Refresh does nothing while still
+# reporting success. See README Part 6 troubleshooting for how this file
+# is generated.
+$caBundle = "$root\nse_scanner\raw\combined_ca_bundle.pem"
+$envPrefix = ""
+if (Test-Path $caBundle) {
+    Write-Host "  Using combined CA bundle for yfinance: $caBundle"
+    $envPrefix = "`$env:CURL_CA_BUNDLE = '$caBundle'; `$env:SSL_CERT_FILE = '$caBundle'; "
+}
+
 Write-Host ""
 Write-Host "Starting backend (FastAPI, port 8000)..."
 Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "Set-Location '$root\nse_scanner\src'; & '.\.venv\Scripts\python.exe' api\main.py"
+    "$envPrefix" + "Set-Location '$root\nse_scanner\src'; & '.\.venv\Scripts\python.exe' api\main.py"
 ) -WindowStyle Normal
 
 Write-Host "Starting frontend (Vite, port 5173)..."

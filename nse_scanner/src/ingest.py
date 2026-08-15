@@ -68,22 +68,33 @@ def extend_trading_calendar(con, upto: date | None = None, lookback_days: int = 
 
     That makes the bhavcopy archive an authoritative NSE calendar — no
     hardcoded holiday list, no guessing about Muhurat sessions.
+
+    A day probed shortly after close, before NSE has published that day's
+    bhavcopy yet, gets stored as unavailable — correctly, at that moment.
+    But unlike an actual holiday, that answer can change a few hours later
+    once the file appears. So only a confirmed TRUE is treated as settled;
+    a stored FALSE is re-probed every time until it turns TRUE, instead of
+    being skipped forever (ON CONFLICT DO NOTHING previously froze it,
+    which silently pinned "latest trading day" one day behind reality).
     """
     upto = upto or date.today()
-    known = con.execute("SELECT date FROM trading_calendar").df()
-    known_set = set(pd.to_datetime(known["date"]).dt.date) if len(known) else set()
+    known = con.execute("SELECT date, bhavcopy_available FROM trading_calendar").df()
+    known_true = (set(pd.to_datetime(known.loc[known["bhavcopy_available"], "date"]).dt.date)
+                 if len(known) else set())
 
     start = upto - timedelta(days=lookback_days)
     added = 0
     d = start
     while d <= upto:
-        if d.weekday() < 5 and d not in known_set:
+        if d.weekday() < 5 and d not in known_true:
             ok = bhavcopy_exists(d)
-            con.execute(
-                "INSERT INTO trading_calendar VALUES (?, ?) ON CONFLICT DO NOTHING",
-                [d, ok],
-            )
-            added += 1
+            con.execute("""
+                INSERT INTO trading_calendar VALUES (?, ?)
+                ON CONFLICT (date) DO UPDATE SET bhavcopy_available = excluded.bhavcopy_available
+                WHERE excluded.bhavcopy_available
+            """, [d, ok])
+            if ok:
+                added += 1
         d += timedelta(days=1)
     return added
 
@@ -526,10 +537,21 @@ def run_ingest(con, backfill_start: str | None = None, enrich: bool = True) -> d
         log.warning("%d symbols STILL have gaps after ingest (genuine failures)",
                     len(still))
 
+    # A day where every symbol failed almost always means the fetch mechanism
+    # itself is broken (network/SSL/rate-limit), not that 2000+ tickers were
+    # simultaneously delisted. That is a real failure, not a normal residual
+    # gap, and needs to be visible as one rather than silently logged "ok"
+    # while nothing actually updates.
+    status = "failed" if symbols and rows_total == 0 else "ok"
+    if status == "failed":
+        log.error("Ingest fetched ZERO rows for all %d symbols — the fetch "
+                  "mechanism itself is likely broken (network/SSL/rate-limit), "
+                  "not a mass delisting. Check yfinance connectivity.", len(symbols))
+
     con.execute("""
         INSERT INTO ingest_log VALUES (?,?,?,?,?,?,?,?,?)
     """, [t0, "daily", None, date.today(), rows_total, len(ok_syms),
-          len(set(symbols)) - len(ok_syms), "ok",
+          len(set(symbols)) - len(ok_syms), status,
           f"{len(still)} symbols with residual gaps"])
 
     return {"rows": rows_total, "symbols": len(ok_syms), "residual_gaps": len(still)}
