@@ -5,6 +5,7 @@ import { ChartDrawer } from "@/components/chart/ChartDrawer"
 import { Header } from "@/components/shell/Header"
 import { HealthRail } from "@/components/shell/HealthRail"
 import { Nav } from "@/components/shell/Nav"
+import Chart from "@/routes/Chart"
 import Data from "@/routes/Data"
 import Placeholder from "@/routes/Placeholder"
 import Today from "@/routes/Today"
@@ -30,8 +31,8 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Layout><Today /></Layout>} />
       <Route path="/scan" element={<Layout><Placeholder screen="Scan" phase="Phase 4" /></Layout>} />
-      <Route path="/chart" element={<Layout><Placeholder screen="Chart" phase="Phase 3" /></Layout>} />
-      <Route path="/chart/:symbol" element={<Layout><Placeholder screen="Chart" phase="Phase 3" /></Layout>} />
+      <Route path="/chart" element={<Layout><Chart /></Layout>} />
+      <Route path="/chart/:symbol" element={<Layout><Chart /></Layout>} />
       <Route path="/watchlist" element={<Layout><Placeholder screen="Watchlist" phase="Phase 5" /></Layout>} />
       <Route path="/holdings" element={<Layout><Placeholder screen="Holdings" phase="Phase 5" /></Layout>} />
       <Route path="/performance" element={<Layout><Placeholder screen="Performance" phase="Phase 6" /></Layout>} />
