@@ -353,7 +353,73 @@ check("test backtest run fully removed (matched by run_id AND its unique label o
      still_there == 0)
 
 # =====================================================================
-print("\n[10] CORS is configured for the Vite dev server")
+print("\n[10] Refresh / Jobs / Exports routers")
+# The real pipeline functions (universe/ingest/validate/features) hit the
+# live internet and mutate real production data — exactly what "Refresh"
+# is supposed to do, but not something an automated test should trigger.
+# Swap in fast fake steps at the router's import site for these tests,
+# then restore, so the HTTP-layer plumbing (SSE framing / job polling /
+# error propagation) gets real coverage with zero side effects.
+import time  # noqa: E402
+
+import api.routers.exports as exports_router  # noqa: E402
+import api.routers.jobs as jobs_router  # noqa: E402
+import api.routers.refresh as refresh_router  # noqa: E402
+
+_orig_refresh_steps = refresh_router.refresh_steps
+_orig_full_rebuild_steps = jobs_router.full_rebuild_steps
+_orig_popen = exports_router.subprocess.Popen
+
+try:
+    refresh_router.refresh_steps = lambda cur: [("FakeStepOK", lambda: None)]
+    with client.stream("GET", "/api/refresh/stream") as r:
+        check("GET /api/refresh/stream -> 200", r.status_code == 200, str(r.status_code))
+        events = [line for line in r.iter_lines() if line.startswith("data: ")]
+    check("streamed a running + done + complete event for the fake step",
+         len(events) == 3
+         and '"status": "running"' in events[0]
+         and '"status": "done"' in events[1]
+         and '"status": "complete"' in events[2],
+         str(events))
+
+    def _boom():
+        raise RuntimeError("fake failure")
+    refresh_router.refresh_steps = lambda cur: [("FakeStepFail", _boom)]
+    with client.stream("GET", "/api/refresh/stream") as r:
+        events = [line for line in r.iter_lines() if line.startswith("data: ")]
+    check("a failing step streams an error event and stops (no event after it)",
+         len(events) == 2 and '"status": "error"' in events[1], str(events))
+
+    jobs_router.full_rebuild_steps = lambda cur: [("FakeRebuildStep", lambda: None)]
+    r = client.post("/api/jobs/full-rebuild")
+    check("POST /api/jobs/full-rebuild -> 200", r.status_code == 200, r.text)
+    job_id = r.json().get("job_id")
+    check("returns a job_id", isinstance(job_id, str) and len(job_id) > 0, r.text)
+
+    for _ in range(50):
+        r = client.get(f"/api/jobs/{job_id}")
+        if r.json()["status"] in ("done", "error"):
+            break
+        time.sleep(0.1)
+    check("fake full-rebuild job reaches status=done", r.json()["status"] == "done", r.text)
+
+    r = client.get("/api/jobs/this-job-id-does-not-exist")
+    check("unknown job_id -> 404", r.status_code == 404, r.text)
+
+    _popen_calls = []
+    exports_router.subprocess.Popen = lambda args: _popen_calls.append(args)
+    r = client.post("/api/exports/reveal")
+    check("POST /api/exports/reveal -> 200", r.status_code == 200, r.text)
+    body = r.json()
+    check("opened the real exports path via explorer (call intercepted, not actually launched)",
+         body["opened"] is True and len(_popen_calls) == 1 and _popen_calls[0][0] == "explorer", str(body))
+finally:
+    refresh_router.refresh_steps = _orig_refresh_steps
+    jobs_router.full_rebuild_steps = _orig_full_rebuild_steps
+    exports_router.subprocess.Popen = _orig_popen
+
+# =====================================================================
+print("\n[11] CORS is configured for the Vite dev server")
 r = client.options("/api/data/table-counts", headers={
     "Origin": "http://localhost:5173",
     "Access-Control-Request-Method": "GET",
