@@ -78,9 +78,10 @@ python test_core.py
 python test_resample.py
 python test_advisor.py
 python test_features.py
+python test_api.py
 ```
 
-Expected: **46 passed** (`test_core.py`), **13 passed** (`test_resample.py`), **15 passed** (`test_advisor.py`), **9 passed** (`test_features.py`), 0 failed across all four. `test_core.py` checks Wilder's RMA, population stdev, locked Supertrend bands, anchored VWAP, pivot detection, and the look-ahead guard — if any of these fail, stop, every number downstream would be wrong. `test_resample.py` checks the D/W/M and Heikin Ashi/Renko chart transforms; `test_advisor.py` checks the position-status rules never invent a number or predict a price; `test_features.py` checks the daily incremental windowing never rewrites an already-correct historical row with a value re-derived from a shorter window (a real bug this project shipped and caught pre-production — see SCANNER_DESIGN.md's 14 Aug 2026 changelog entry).
+Expected: **46 passed** (`test_core.py`), **13 passed** (`test_resample.py`), **15 passed** (`test_advisor.py`), **9 passed** (`test_features.py`), **104 passed** (`test_api.py`), 0 failed across all five. `test_core.py` checks Wilder's RMA, population stdev, locked Supertrend bands, anchored VWAP, pivot detection, and the look-ahead guard — if any of these fail, stop, every number downstream would be wrong. `test_resample.py` checks the D/W/M and Heikin Ashi/Renko chart transforms; `test_advisor.py` checks the position-status rules never invent a number or predict a price; `test_features.py` checks the daily incremental windowing never rewrites an already-correct historical row with a value re-derived from a shorter window (a real bug this project shipped and caught pre-production — see SCANNER_DESIGN.md's 14 Aug 2026 changelog entry); `test_api.py` exercises every FastAPI router in-process (`TestClient`, real DB), including the built-mode SPA fallback.
 
 ---
 
@@ -148,11 +149,13 @@ python scan.py --preset w_baseline --export
 ### Step 6 — Launch the app
 
 ```cmd
-cd web
-python main.py
+cd D:\Work\kTradeApps\kScanner
+dev.bat
 ```
 
-Opens at `http://localhost:8080`. Eight screens on the left: Today (default landing) · Scan · Chart · Watchlist · Holdings · Performance · Backtest · Data.
+Starts the FastAPI backend (`:8000`) and the React frontend (`:5173`) together, killing anything already running on those ports first. Opens at `http://localhost:5173`. Eight screens on the left: Today (default landing) · Scan · Chart · Watchlist · Holdings · Performance · Backtest · Data.
+
+(The old NiceGUI app is retired — `git checkout v2-nicegui` restores it if you ever need to compare against the pre-React version.)
 
 ---
 
@@ -171,8 +174,8 @@ Skipped four days? The calendar anti-join finds exactly what is missing — holi
 
 Then:
 ```cmd
-cd web
-python main.py
+cd D:\Work\kTradeApps\kScanner
+dev.bat
 ```
 
 ### Weekly — do not skip this
@@ -355,11 +358,13 @@ python test_core.py                                 # verify the maths
 python test_resample.py                             # verify D/W/M and chart-type transforms
 python test_advisor.py                              # verify the position-status rules
 python test_features.py                             # verify incremental windowing never rewrites a stored row
-cd web && python main.py                            # the UI
+python test_api.py                                  # verify every FastAPI router in-process
+
+cd D:\Work\kTradeApps\kScanner && dev.bat            # the UI (backend :8000 + frontend :5173)
 ```
 
 ---
 
 ## The one-paragraph version
 
-Run `run_daily.bat`, then `cd web && python main.py`. Skipped days fix themselves. Run `run_weekly.bat` on Sundays. Before you trust any backtest number, run the `w_naked` control first and check the trade count is above 100.
+Run `run_daily.bat`, then `dev.bat` from `D:\Work\kTradeApps\kScanner`. Skipped days fix themselves. Run `run_weekly.bat` on Sundays. Before you trust any backtest number, run the `w_naked` control first and check the trade count is above 100.

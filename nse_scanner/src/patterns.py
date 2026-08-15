@@ -351,8 +351,11 @@ def select_active_pattern(
     Rule: keep only patterns whose entry trigger actually fired, then take
     the one with the most recent trigger.
       - scan.py passes max_bars_since_trigger so only fresh triggers count.
-      - web/pages/chart.py leaves it None, to show the last real setup for
-        this symbol regardless of age.
+      - The chart screen (api/services/chart.py's _active_pattern()) doesn't
+        call this function at all — it just takes the most recent confirmed
+        candidate from find_w_patterns() regardless of entry-trigger status,
+        since the chart's job is showing the last real setup on the symbol,
+        triggered or not. Same behavior the original NiceGUI chart.py had.
 
     Returns (pattern, signal_bar_pos), or None if nothing ever triggered.
     """

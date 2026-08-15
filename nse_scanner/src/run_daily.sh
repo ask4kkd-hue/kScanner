@@ -7,4 +7,4 @@ python universe.py
 python ingest.py
 python validate.py --days 1
 python features.py
-echo "Done. Launch with: cd web && python main.py"
+echo "Done. Launch with: cd src/api && python main.py (backend, :8000), and in another shell: cd ../../../nse_scanner_ui && npm run dev (frontend, :5173)"

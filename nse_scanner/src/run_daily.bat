@@ -31,7 +31,7 @@ python features.py
 if errorlevel 1 goto :error
 
 echo.
-echo Done. Launch the app with:  cd web ^&^& python main.py
+echo Done. Launch the app with:  cd D:\Work\kTradeApps\kScanner ^&^& dev.bat
 goto :eof
 
 :error
