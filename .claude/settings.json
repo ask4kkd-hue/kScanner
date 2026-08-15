@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./.venv/Scripts/python.exe -c ' *)",
+      "Bash(./.venv/Scripts/python.exe -c \"import db, inspect; print\\(db.__file__\\); print\\(len\\(db.SCHEMA\\)\\)\")",
+      "Bash(./.venv/Scripts/python.exe -c \"import db; print\\(db.__file__\\); print\\(len\\(db.SCHEMA\\)\\)\")",
+      "Bash(rm -rf __pycache__)",
+      "Bash(curl -sI \"https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv\" -w \"\\\\nHTTP_CODE:%{http_code}\\\\n\")",
+      "Bash(curl -V)",
+      "PowerShell(Get-ChildItem Cert:\\\\LocalMachine\\\\Root | Where-Object { $_.Subject -notmatch \"DigiCert|GlobalSign|Sectigo|COMODO|GeoTrust|VeriSign|Microsoft|Entrust|Baltimore|USERTrust|thawte|GTS|ISRG|QuoVadis|Go Daddy|Starfield|Symantec|AAA Certificate|Certum|SwissSign|IdenTrust|D-TRUST|Amazon|Google Trust\" } | Select-Object Subject, Issuer | Format-List)",
+      "Bash(./.venv/Scripts/python.exe -m pip install pip-system-certs -q)"
+    ]
+  }
+}
