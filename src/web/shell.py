@@ -11,13 +11,17 @@ from __future__ import annotations
 
 import importlib
 import subprocess
-import sys
+import traceback
 from pathlib import Path
 
 from nicegui import ui
 
 import components as comp
+import features
+import ingest
 import theme
+import universe
+import validate
 from validate import data_is_stale
 from db import table_counts
 
@@ -32,13 +36,6 @@ ICONS = {"today": "today", "scan": "search", "chart": "candlestick_chart",
          "watchlist": "visibility", "holdings": "account_balance_wallet",
          "performance": "insights", "backtest": "science", "data": "storage"}
 
-PIPELINE_STEPS = [
-    ("Universe", ["universe.py"]),
-    ("Ingest", ["ingest.py"]),
-    ("Validate", ["validate.py", "--days", "1"]),
-    ("Features", ["features.py"]),
-]
-
 
 def get_pref(con, key: str, default: str | None = None) -> str | None:
     row = con.execute("SELECT value FROM ui_prefs WHERE key = ?", [key]).fetchone()
@@ -52,11 +49,23 @@ def set_pref(con, key: str, value: str) -> None:
     """, [key, value])
 
 
-def _run_step(args: list[str]) -> tuple[bool, str]:
-    result = subprocess.run([sys.executable, *args], cwd=str(_SRC_DIR),
-                            capture_output=True, text=True)
-    tail = (result.stdout + result.stderr).strip().splitlines()
-    return result.returncode == 0, "\n".join(tail[-15:])
+def _run_in_process(fn, *args, **kwargs) -> tuple[bool, str]:
+    """
+    Runs fn(con, ...) directly against the connection already open in this
+    process. The refresh pipeline used to shell out to `python universe.py`
+    etc. as separate processes — DuckDB is single-writer, so a subprocess
+    trying to open its OWN connection to the same file always failed with a
+    lock error the moment the web server (holding the real connection) was
+    running, which was every time. Calling straight into each module's
+    con-taking function (universe.run_universe, ingest.run_ingest, etc.)
+    reuses this process's connection instead of opening a second one.
+    """
+    try:
+        fn(*args, **kwargs)
+        return True, ""
+    except Exception:
+        tail = traceback.format_exc().strip().splitlines()
+        return False, "\n".join(tail[-15:])
 
 
 def build(con) -> None:
@@ -112,10 +121,16 @@ def build(con) -> None:
         render_page()
 
     async def do_refresh() -> None:
+        steps = [
+            ("Universe", universe.run_universe, (con,), {}),
+            ("Ingest", ingest.run_ingest, (con,), {}),
+            ("Validate", validate.run_validation, (con,), {}),
+            ("Features", features.build_features, (con,), {}),
+        ]
         n = ui.notification(timeout=None, spinner=True, close_button=False)
-        for label, args in PIPELINE_STEPS:
+        for label, fn, args, kwargs in steps:
             n.message = f"Refreshing… {label}"
-            ok, tail = await comp.run_bg(_run_step, args)
+            ok, tail = await comp.run_bg(_run_in_process, fn, *args, **kwargs)
             if not ok:
                 n.dismiss()
                 ui.notify(f"Refresh FAILED at {label} — nothing after it ran.\n{tail}",
@@ -127,15 +142,25 @@ def build(con) -> None:
         refresh_health(health_box)
 
     async def do_full_rebuild() -> None:
-        n = ui.notification("Full rebuild — features.py --full (this takes a while)…",
-                            timeout=None, spinner=True, close_button=False)
-        ok, tail = await comp.run_bg(_run_step, ["features.py", "--full"])
+        n = ui.notification(
+            "Full rebuild — 1D + 1W + 1M features (this takes a while)…",
+            timeout=None, spinner=True, close_button=False)
+        for tf in ("1d", "1w", "1m"):
+            ok, tail = await comp.run_bg(
+                _run_in_process, features.build_features, con, full=True, timeframe=tf)
+            if not ok:
+                n.dismiss()
+                ui.notify(f"Full rebuild failed on timeframe {tf}.\n{tail}",
+                          type="negative", multi_line=True, timeout=20000,
+                          close_button=True)
+                return
+        ok, tail = await comp.run_bg(_run_in_process, features.build_rs_rank, con)
         n.dismiss()
         if ok:
-            ui.notify("Full rebuild complete.", type="positive")
+            ui.notify("Full rebuild complete (1D + 1W + 1M).", type="positive")
             refresh_health(health_box)
         else:
-            ui.notify(f"Full rebuild failed.\n{tail}", type="negative",
+            ui.notify(f"Full rebuild failed on rs_rank.\n{tail}", type="negative",
                       multi_line=True, timeout=20000, close_button=True)
 
     def reset_drawings() -> None:
@@ -170,7 +195,7 @@ def build(con) -> None:
                     f"background:{theme.ACCENT}; color:white")
             with ui.button(icon="more_vert").props("flat dense round color=white"):
                 with ui.menu():
-                    ui.menu_item("Run full rebuild (features --full)", do_full_rebuild)
+                    ui.menu_item("Run full rebuild (1D + 1W + 1M)", do_full_rebuild)
                     ui.menu_item("Open exports folder", open_exports)
                     ui.menu_item("Reset drawings for this symbol", reset_drawings)
                     ui.separator()

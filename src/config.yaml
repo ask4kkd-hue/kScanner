@@ -237,6 +237,13 @@ chart:
   default_type: "candle"
   renko_brick_mode: "atr"
   renko_brick_atr_mult: 1.0
+  # W-pattern detection needs its OWN daily lookback, decoupled from the
+  # "Bars" display control: pattern.max_separation(60) + entry_max_wait(30)
+  # = up to 90 bars needed just structurally, and on MONTHLY that's ~90
+  # months (~7.5 years) of underlying daily bars. Reusing the display bar
+  # count (default 250) starves weekly/monthly detection almost entirely —
+  # not a rendering bug, just not enough history ever reaches the detector.
+  pattern_lookback_bars: 2500
 
 # -------------------------------------------------------------------
 # SCAN FILTER CHIPS (v2 UI) — add a chip here, never in Python

@@ -158,8 +158,15 @@ def upsert_instruments(con, df: pd.DataFrame) -> int:
     df = df.copy()
     df["sector"] = df.get("sector")
     df["industry"] = df.get("industry")
+    # NSE's EQUITY_L.csv DATE_OF_LISTING is always DD-MMM-YYYY (e.g.
+    # "06-OCT-2008") — verified against a real downloaded file, all rows
+    # matching, zero exceptions. An explicit format avoids both the pandas
+    # "could not infer format" warning AND the slow per-row dateutil
+    # fallback it triggers; dayfirst=True was never actually doing
+    # anything here since a month NAME has no day/month ambiguity to
+    # resolve.
     df["first_seen"] = pd.to_datetime(
-        df.get("listing_date", pd.NaT), errors="coerce", dayfirst=True
+        df.get("listing_date", pd.NaT), format="%d-%b-%Y", errors="coerce"
     ).dt.date
     df["last_seen"] = today
 
@@ -285,6 +292,29 @@ def all_symbols_for_ingest(con) -> pd.DataFrame:
 
 # ---------------------------------------------------------------- cli
 
+def run_universe(con, local_csv: str | None = None, skip_flags: bool = False) -> dict:
+    """
+    The full sequence, on an ALREADY-OPEN connection — callers that already
+    hold one (the web UI's Refresh button) must never call connect() again;
+    DuckDB is single-writer, so a second connection to the same file fails
+    outright rather than queuing (see db.py's own docstring).
+    """
+    raw = load_local_equity_list(local_csv) if local_csv else fetch_equity_list()
+    inst = normalise_equity_list(raw)
+    n = upsert_instruments(con, inst)
+    log.info("Instruments upserted: %d", n)
+
+    m = 0
+    if not skip_flags:
+        flags = fetch_surveillance_lists()
+        m = save_flags(con, flags)
+        log.info("Surveillance flags stored: %d", m)
+
+    total = con.execute("SELECT COUNT(*) FROM instruments").fetchone()[0]
+    log.info("instruments table now holds %d rows", total)
+    return {"instruments_upserted": n, "flags_stored": m, "instruments_total": total}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Build the instrument universe.")
     ap.add_argument("--local-csv", help="path to an EQUITY_L.csv you already have")
@@ -297,19 +327,7 @@ def main() -> None:
 
     con = connect()
     init_schema(con)
-
-    raw = load_local_equity_list(args.local_csv) if args.local_csv else fetch_equity_list()
-    inst = normalise_equity_list(raw)
-    n = upsert_instruments(con, inst)
-    log.info("Instruments upserted: %d", n)
-
-    if not args.skip_flags:
-        flags = fetch_surveillance_lists()
-        m = save_flags(con, flags)
-        log.info("Surveillance flags stored: %d", m)
-
-    total = con.execute("SELECT COUNT(*) FROM instruments").fetchone()[0]
-    log.info("instruments table now holds %d rows", total)
+    run_universe(con, local_csv=args.local_csv, skip_flags=args.skip_flags)
     con.close()
 
 

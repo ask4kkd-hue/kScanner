@@ -475,7 +475,14 @@ function createId(prefix) {
  * limitations under the License.
  */
 // @ts-nocheck
-var DEV = process.env.NODE_ENV === 'development';
+// Patched: this build artifact left in a raw Node `process.env` reference
+// that a bundler is normally supposed to have replaced at build time —
+// `process` doesn't exist in a browser, so this threw a ReferenceError on
+// module load, crashing the whole klinecharts import (and with it the
+// entire Vue app mount — that's what made the WHOLE page render blank, not
+// just the chart canvas). `typeof process !== 'undefined'` is safe even
+// when `process` is undeclared; DEV correctly resolves to false in browser.
+var DEV = typeof process !== 'undefined' && process.env && process.env.NODE_ENV === 'development';
 function log(templateText, tagStyle, messageStyle, api, invalidParam, append) {
     if (DEV) {
         var apiStr = api !== '' ? "Call api `".concat(api, "`").concat(invalidParam !== '' || append !== '' ? ', ' : '.') : '';

@@ -215,7 +215,9 @@ web/pages/chart.py controls:
   Symbol selector with type-ahead
   Timeframe: D / W / M                       (default D)
   Chart type: Candle / Line / Heikin Ashi / Renko   (default Candle)
-  Overlays multiselect: sma10/20/50/100/200
+  Overlays 
+  
+  multiselect: sma10/20/50/100/200
   AVWAP anchor: none / 52w low / 52w high / last W first low
   Metrics strip below: close, ADR%, ADX, RSI, delivery%, RS rank, pattern found
   W-pattern markers drawn as overlays: L1, L2, neckline, stop, target

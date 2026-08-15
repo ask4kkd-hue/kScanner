@@ -37,12 +37,24 @@ import numpy as np
 import pandas as pd
 
 import indicators as ind
+import resample as rs
 from config import CFG, config_hash
 from db import connect, init_schema
 
 log = logging.getLogger("features")
 
 P = CFG["features"]["params"]
+
+# Weekly/monthly features run the SAME registry against session-resampled
+# bars (resample.py) rather than a separately-fetched table — there is no
+# bars_1w/bars_1m fact table (design doc: Layer 1 never stores a derived
+# value). warmup_discard_bars stays a bar-count margin, not a calendar one,
+# so it applies unchanged in each timeframe's own bar units: a weekly ADX
+# needs ~250 WEEKLY bars (~5 years) to clear the same settling margin a
+# daily ADX needs in daily bars. Monthly (~250 months = ~20 years) will
+# stay sparse or empty for most symbols until enough history accumulates —
+# that is an honest consequence of the same rule, not a bug.
+FEATURES_TABLE = {"1d": "features_1d", "1w": "features_1w", "1m": "features_1m"}
 
 
 # =====================================================================
@@ -296,43 +308,124 @@ def compute_symbol(df: pd.DataFrame, order: List[str]) -> pd.DataFrame:
     return out
 
 
+def _resample_for(daily_bars: pd.DataFrame, timeframe: str) -> pd.DataFrame:
+    if timeframe == "1d":
+        return daily_bars
+    if timeframe == "1w":
+        return rs.to_weekly(daily_bars)
+    if timeframe == "1m":
+        return rs.to_monthly(daily_bars)
+    raise ValueError(f"Unknown timeframe '{timeframe}'. Known: {sorted(FEATURES_TABLE)}")
+
+
+_DAILY_BARS_SQL = """
+    SELECT date, open, high, low, close, volume, vwap, deliv_pct, no_of_trades
+    FROM bars_1d WHERE isin = ?
+"""
+
+
+def _fetch_symbol_bars(con, isin: str, table: str, timeframe: str, full: bool,
+                       rebuild_from: date | None,
+                       context_bars: int) -> tuple[pd.DataFrame, int, date | None]:
+    """
+    Returns (bars, bars_available_offset, since).
+
+    Full rebuilds, an explicit --from-date, and weekly/monthly always fetch
+    the COMPLETE history: a full rebuild exists specifically to recompute
+    historical dates too (a corp-action correction or a config.yaml change
+    invalidates old rows, not just today's), --from-date is an explicit ask
+    to resync from a point in the past, and 1w/1m's daily-bars-per-period
+    ratio varies with holidays/thin weeks, making an exact trailing window
+    fragile — not worth it when those tables are only rebuilt weekly anyway
+    (run_weekly.bat), never via the daily incremental path.
+
+    Daily incremental runs fetch only `context_bars` (warm-up margin + the
+    neediest enabled feature's min_bars) of trailing context PLUS however
+    many new bars_1d rows landed since this symbol's last stored features_1d
+    row. `since` is returned so build_features can restrict WRITES to
+    strictly-newer dates only — an already-stored row must never be
+    silently overwritten with a value re-derived from a shorter, less-
+    settled window (verified empirically: a windowed recompute converges to
+    the true full-history value at the newest row, but rows in the middle of
+    a re-touched window can be measurably off — up to several RSI/ADX points
+    in testing — so "already correct" rows are simply never re-touched by an
+    incremental run at all, not just trusted to converge).
+
+    offset reconstructs the TRUE historical bars_available (position within
+    the symbol's whole history, not position within this fetch) so a
+    windowed run and a full run would store the identical number for the
+    same date — bars_available is a real gate presets can compare against
+    (`bars_available >= 500`, say), not just an internal `> warm` check.
+    """
+    if full or rebuild_from is not None or timeframe != "1d":
+        return con.execute(f"{_DAILY_BARS_SQL} ORDER BY date", [isin]).df(), 0, None
+
+    since = con.execute(f"SELECT MAX(date) FROM {table} WHERE isin = ?", [isin]).fetchone()[0]
+    if since is None:
+        return con.execute(f"{_DAILY_BARS_SQL} ORDER BY date", [isin]).df(), 0, None
+
+    new_days = con.execute(
+        "SELECT COUNT(*) FROM bars_1d WHERE isin = ? AND date > ?", [isin, since]
+    ).fetchone()[0]
+    if new_days == 0:
+        return pd.DataFrame(), 0, since
+
+    total_n = con.execute("SELECT COUNT(*) FROM bars_1d WHERE isin = ?", [isin]).fetchone()[0]
+    fetch_n = context_bars + new_days
+
+    bars = con.execute(f"""
+        SELECT * FROM ({_DAILY_BARS_SQL} ORDER BY date DESC LIMIT ?) ORDER BY date
+    """, [isin, fetch_n]).df()
+    offset = max(0, total_n - len(bars))
+    return bars, offset, since
+
+
 def build_features(con, isins: List[str] | None = None,
                    rebuild_from: date | None = None,
-                   full: bool = False) -> int:
+                   full: bool = False, timeframe: str = "1d") -> int:
     """
-    Compute and store pass-1 features.
+    Compute and store pass-1 features for one timeframe.
 
-    Incremental runs recompute the last (250 + lookback) bars per symbol —
-    SMA200 needs 200 bars of context, so a shorter window would produce wrong
-    values at the join. Full rebuilds drop and recreate everything.
+    Daily incremental runs (no --full, no --from-date) fetch only a trailing
+    window per symbol and write ONLY the rows strictly newer than what that
+    symbol already has stored — an already-correct historical row is never
+    re-derived and overwritten. Everything else (a full rebuild, an explicit
+    --from-date, or any 1w/1m run) always recomputes over the complete
+    history — see _fetch_symbol_bars for exactly why each case needs to.
+
+    Weekly/monthly bars are resampled from bars_1d on the fly (resample.py) —
+    the SAME daily fact table is the only source, never a separate bars_1w/
+    bars_1m table.
     """
+    table = FEATURES_TABLE[timeframe]
     enabled = CFG["features"]["enabled"]
     order = resolve_enabled(enabled)
     fv = feature_version(enabled)
     warm = P["warmup_discard_bars"]
+    pass1 = [n for n in order if REGISTRY[n].get("pass", 1) == 1]
+    context_bars = warm + max((REGISTRY[n]["min_bars"] for n in pass1), default=0)
 
     if full:
-        con.execute("DELETE FROM features_1d")
-        log.info("Full rebuild: features_1d cleared")
+        con.execute(f"DELETE FROM {table}")
+        log.info("Full rebuild: %s cleared", table)
 
     if isins is None:
         isins = con.execute(
             "SELECT DISTINCT isin FROM bars_1d ORDER BY isin").df()["isin"].tolist()
 
-    log.info("Computing %d features for %d symbols (version %s)",
-             len(order), len(isins), fv)
+    log.info("Computing %d features for %d symbols, timeframe=%s (version %s)",
+             len(order), len(isins), timeframe, fv)
 
     total = 0
     for i, isin in enumerate(isins, 1):
-        bars = con.execute("""
-            SELECT date, open, high, low, close, volume, vwap,
-                   deliv_pct, no_of_trades
-            FROM bars_1d WHERE isin = ? ORDER BY date
-        """, [isin]).df()
+        bars, bars_offset, since = _fetch_symbol_bars(
+            con, isin, table, timeframe, full, rebuild_from, context_bars)
+        bars = _resample_for(bars, timeframe)
         if len(bars) < 30:
             continue
 
         feats = compute_symbol(bars, order)
+        feats["bars_available"] += bars_offset
         feats["isin"] = isin
         feats["feature_version"] = fv
 
@@ -341,27 +434,32 @@ def build_features(con, isins: List[str] | None = None,
         feats = feats[feats["bars_available"] > warm]
         if rebuild_from is not None:
             feats = feats[pd.to_datetime(feats["date"]).dt.date >= rebuild_from]
+        elif since is not None:
+            # Incremental: never rewrite a date this symbol already has a
+            # stored row for, even if the windowed recompute agrees with it —
+            # see _fetch_symbol_bars.
+            feats = feats[pd.to_datetime(feats["date"]).dt.date > since]
         if feats.empty:
             continue
 
-        _upsert_features(con, feats)
+        _upsert_features(con, feats, table)
         total += len(feats)
 
         if i % 100 == 0:
             log.info("  %d/%d symbols, %d rows", i, len(isins), total)
 
-    log.info("Pass 1 complete: %d rows", total)
+    log.info("Pass 1 complete (%s): %d rows", table, total)
     return total
 
 
-def _upsert_features(con, feats: pd.DataFrame) -> None:
-    cols = con.execute("PRAGMA table_info('features_1d')").df()["name"].tolist()
+def _upsert_features(con, feats: pd.DataFrame, table: str = "features_1d") -> None:
+    cols = con.execute(f"PRAGMA table_info('{table}')").df()["name"].tolist()
     for c in cols:
         if c not in feats.columns:
             feats[c] = None
     con.register("tmp_feat", feats[cols])
-    con.execute("""
-        INSERT INTO features_1d SELECT * FROM tmp_feat
+    con.execute(f"""
+        INSERT INTO {table} SELECT * FROM tmp_feat
         ON CONFLICT (isin, date) DO UPDATE SET
             """ + ", ".join(f"{c} = excluded.{c}" for c in cols
                             if c not in ("isin", "date")))
@@ -381,6 +479,11 @@ def build_rs_rank(con) -> int:
 
     rs_rank_pct is a percentile within that DATE's universe — so a backtest
     reading it is ranking against the universe as it existed then, not today's.
+
+    Daily only: the benchmark (index_bars) is a daily series and ret_55d's
+    lookback is tuned in daily-bar units. Weekly/monthly features_1w/1m carry
+    ret_55d (each timeframe's own bar-count return) but rs_vs_bench/
+    rs_rank_pct stay NULL there rather than mixing timeframes silently.
     """
     if "rs_rank" not in CFG["features"]["enabled"]:
         log.info("rs_rank disabled; skipping pass 2")
@@ -433,6 +536,9 @@ def main() -> None:
                     help="full rebuild (do this weekly — see the design doc)")
     ap.add_argument("--from-date", help="rebuild from this date onward (YYYY-MM-DD)")
     ap.add_argument("--symbol", help="single symbol, for debugging")
+    ap.add_argument("--timeframe", choices=["1d", "1w", "1m", "all"], default="1d",
+                    help="which features table to build (default: 1d, the daily "
+                         "pipeline). 'all' builds 1d, 1w, and 1m in one run.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -446,8 +552,12 @@ def main() -> None:
                             [args.symbol]).df()["isin"].tolist()
 
     rebuild_from = pd.to_datetime(args.from_date).date() if args.from_date else None
-    build_features(con, isins=isins, rebuild_from=rebuild_from, full=args.full)
-    build_rs_rank(con)
+    timeframes = ["1d", "1w", "1m"] if args.timeframe == "all" else [args.timeframe]
+    for tf in timeframes:
+        build_features(con, isins=isins, rebuild_from=rebuild_from, full=args.full,
+                       timeframe=tf)
+        if tf == "1d":
+            build_rs_rank(con)
     con.close()
 
 

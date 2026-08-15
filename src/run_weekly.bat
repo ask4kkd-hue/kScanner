@@ -20,7 +20,7 @@ if exist "..\raw\combined_ca_bundle.pem" (
 python universe.py
 python ingest.py
 python validate.py --days 5
-python features.py --full
+python features.py --full --timeframe all
 
 echo.
 echo Full rebuild complete.

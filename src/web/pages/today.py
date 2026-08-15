@@ -9,8 +9,11 @@ reads the already-persisted signals_1d table from the last actual scan run
 recomputation.
 
 Weekly/monthly opportunities check whether features_1w/features_1m have any
-rows at all; if not (they don't yet — see README "Pending features"), this
-says so explicitly rather than silently reporting zero signals.
+rows at all; if not (a symbol/date can genuinely lack enough history — see
+features.py's warm-up rule), this says so explicitly rather than silently
+reporting zero signals. Note this only gates on the FEATURES existing —
+scan.py itself is still daily-only, so these blocks will keep saying "No
+signals from the last scan" until weekly/monthly scanning is built.
 """
 
 from __future__ import annotations

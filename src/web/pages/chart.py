@@ -28,6 +28,8 @@ from config import CFG
 from kline import KLineChart
 
 TIMEFRAMES = {"D": "1d", "W": "1w", "M": "1m"}
+FEATURES_TABLE = {"D": "features_1d", "W": "features_1w", "M": "features_1m"}
+PATTERN_LOOKBACK_BARS = CFG["chart"]["pattern_lookback_bars"]
 CHART_TYPES = ["Candle", "Line", "Heikin Ashi", "Renko"]
 OVERLAY_OPTIONS = ["sma10", "sma20", "sma50", "sma100", "sma200"]
 AVWAP_OPTIONS = ["(none)", "52-week low", "52-week high", "last W first low"]
@@ -78,6 +80,17 @@ def _save_drawings(con, isin: str, timeframe: str, overlays: list[dict]) -> None
     """, [isin, timeframe, json.dumps(overlays), ])
 
 
+def _load_feature_row(con, isin: str, tf: str, as_of) -> dict:
+    """Latest indicator row on or before as_of, from that timeframe's own
+    features table — features_1w/1m are resampled from bars_1d, not a
+    separate fetch, so 'as of' the last bar shown on THIS chart."""
+    table = FEATURES_TABLE[tf]
+    row = con.execute(
+        f"SELECT * FROM {table} WHERE isin = ? AND date <= ? ORDER BY date DESC LIMIT 1",
+        [isin, as_of]).df()
+    return row.iloc[0].to_dict() if not row.empty else {}
+
+
 def _active_pattern(bars_df: pd.DataFrame):
     """Same detection rules for every timeframe — the point of 'D/W/M
     together' is comparing the SAME logic applied to each timeframe's own
@@ -92,6 +105,26 @@ def _active_pattern(bars_df: pd.DataFrame):
         confirm_max_wait=pcfg["entry_max_wait"],
     )
     return candidates[-1] if candidates else None
+
+
+def _level_overlay_pair(tf_bars: pd.DataFrame, pos: int, price: float, label: str,
+                        color: str | None = None) -> list[dict]:
+    """A priceLine anchored AT the L1/L2/neckline candle (extends only
+    rightward from there — not the full chart width, which is what an
+    anchor-less point defaults to) plus a small text tag at the same point.
+    Two overlays because klinecharts' priceLine has no custom-text slot of
+    its own (its built-in label is just the price value, kept alongside) —
+    'simpleAnnotation' is the built-in type that renders arbitrary text
+    (via extendData) at a point."""
+    ts = int(pd.Timestamp(tf_bars["date"].iloc[pos]).timestamp() * 1000)
+    point = {"timestamp": ts, "value": price}
+    styles = {"line": {"color": color}, "text": {"color": color}} if color else {}
+    return [
+        {"name": "priceLine", "points": [point], "extendData": label,
+         "lock": True, "styles": {"line": {"color": color}} if color else {}},
+        {"name": "simpleAnnotation", "points": [point], "extendData": label,
+         "lock": True, "styles": styles},
+    ]
 
 
 # Distinct color per timeframe for the "D/W/M together" overlay — direct
@@ -123,7 +156,7 @@ def render(con, state: dict) -> None:
         avwap_sel = ui.select(AVWAP_OPTIONS, value="(none)",
                               label="Anchor VWAP at").classes("w-44")
         show_w = ui.checkbox("Mark last W L1/L2", value=True)
-        show_all_tf = ui.checkbox("D/W/M together", value=False)
+        show_all_tf = ui.checkbox("D/W/M together", value=True)
 
     chart = KLineChart()
 
@@ -165,6 +198,17 @@ def render(con, state: dict) -> None:
             return
         bars_df = bars_df.reset_index(drop=True)
 
+        # Pattern detection gets its OWN, much longer daily fetch — decoupled
+        # from the "Bars" display control. A monthly W needs up to ~90
+        # monthly bars just structurally (max_separation + entry_max_wait),
+        # which the display's default 250 daily bars (~11 monthly candles)
+        # could never supply. This never affects what's actually drawn as
+        # candles — only which bars L1/L2 detection gets to look at.
+        pattern_daily = _load_daily(con, isin, PATTERN_LOOKBACK_BARS)
+        pattern_bars_df = {"D": pattern_daily, "W": rs.to_weekly(pattern_daily),
+                           "M": rs.to_monthly(pattern_daily)}[tf]
+        pattern_bars_df = pattern_bars_df.reset_index(drop=True)
+
         chart_type = type_sel.value
         if chart_type == "Heikin Ashi":
             display_df = rs.to_heikin_ashi(bars_df)
@@ -188,26 +232,31 @@ def render(con, state: dict) -> None:
         chart.set_indicators([f"MA:{','.join(o[3:] for o in overlays_sel.value)}"]
                              if overlays_sel.value else [])
 
-        # Metrics strip — always the latest DAILY features_1d row: weekly/
-        # monthly indicator tables don't exist yet (see README "Pending
-        # features"), so these are today's real daily readings regardless
-        # of which timeframe the candles above are drawn in.
+        # Metrics strip — the ACTIVE timeframe's own indicator row (features_1d/
+        # 1w/1m), as of the last bar shown on this chart. On W/M, rs_rank_pct
+        # stays blank (cross-sectional ranking is daily-only — see
+        # features.py build_rs_rank), everything else is that timeframe's
+        # real reading, not a daily proxy.
         last = daily.iloc[-1]
+        close_val = float(bars_df["close"].iloc[-1])
+        metrics_src = (last.to_dict() if tf == "D" else
+                      _load_feature_row(con, isin, tf,
+                                       pd.Timestamp(bars_df["date"].iloc[-1]).date()))
 
         def fmt(col: str, digits: int = 1) -> str:
-            v = last.get(col)
+            v = metrics_src.get(col)
             return f"{v:.{digits}f}" if v is not None and v == v else "—"
 
         # W-pattern on the current timeframe's real bars (not the Heikin
-        # Ashi/Renko transform) — same detection rules regardless of
-        # timeframe, applied to that timeframe's own bars, per the "same
-        # logic across 1D/1W/1M" instruction.
-        active = _active_pattern(bars_df)
+        # Ashi/Renko transform, and not the display-limited bars_df — see
+        # pattern_bars_df above), same detection rules regardless of
+        # timeframe, per the "same logic across 1D/1W/1M" instruction.
+        active = _active_pattern(pattern_bars_df)
 
         metrics_row.clear()
         with metrics_row:
             for label, val in [
-                ("close", f"{last['close']:.2f}"), ("ADR%", fmt("adr_pct20")),
+                ("close", f"{close_val:.2f}"), ("ADR%", fmt("adr_pct20")),
                 ("ADX", fmt("adx14")), ("RSI", fmt("rsi14")),
                 ("delivery%", fmt("deliv_pct_sma20")), ("RS rank", fmt("rs_rank_pct", 0)),
                 ("pattern", "W found" if active else "none"),
@@ -222,8 +271,11 @@ def render(con, state: dict) -> None:
             # Same pattern, all three timeframes, color-coded, on whichever
             # candles are currently shown — comparing D/W/M side by side was
             # the actual point of the original request, not just cycling
-            # the toggle one timeframe at a time.
-            per_tf_bars = {"D": daily, "W": rs.to_weekly(daily), "M": rs.to_monthly(daily)}
+            # the toggle one timeframe at a time. Uses pattern_daily (see
+            # above), not the display-limited daily, so weekly/monthly
+            # actually get enough bars to find a real pattern.
+            per_tf_bars = {"D": pattern_daily, "W": rs.to_weekly(pattern_daily),
+                           "M": rs.to_monthly(pattern_daily)}
             for label_tf, tf_bars in per_tf_bars.items():
                 if tf_bars.empty:
                     continue
@@ -232,22 +284,15 @@ def render(con, state: dict) -> None:
                 if not tf_active:
                     continue
                 color = TF_MARKER_COLOR[label_tf]
-                for lvl, price in (("L1", tf_active.l1_price), ("L2", tf_active.l2_price)):
-                    server_overlays.append({
-                        "name": "priceLine", "points": [{"value": price}],
-                        "extendData": f"{label_tf}-{lvl}",
-                        "styles": {"line": {"color": color}},
-                        "lock": True,
-                    })
+                for lvl, price, pos in (("L1", tf_active.l1_price, tf_active.l1_pos),
+                                        ("L2", tf_active.l2_price, tf_active.l2_pos)):
+                    server_overlays.extend(_level_overlay_pair(
+                        tf_bars, pos, price, f"{label_tf}-{lvl}", color))
         elif show_w.value and active:
-            for label, price in (("L1", active.l1_price), ("L2", active.l2_price),
-                                 ("neckline", active.neckline)):
-                server_overlays.append({
-                    "name": "priceLine",
-                    "points": [{"value": price}],
-                    "extendData": label,
-                    "lock": True,
-                })
+            for label, price, pos in (("L1", active.l1_price, active.l1_pos),
+                                      ("L2", active.l2_price, active.l2_pos),
+                                      ("neckline", active.neckline, active.neckline_pos)):
+                server_overlays.extend(_level_overlay_pair(pattern_bars_df, pos, price, label))
 
         avwap_choice = avwap_sel.value
         if avwap_choice != "(none)" and "vwap" in bars_df.columns:
@@ -257,7 +302,15 @@ def render(con, state: dict) -> None:
             elif avwap_choice == "52-week high":
                 pos = int(bars_df["high"].tail(lookback).idxmax())
             else:
-                pos = active.l1_pos if active else 0
+                # active.l1_pos indexes pattern_bars_df (a longer history
+                # than the display-limited bars_df) — translate via date,
+                # never reuse the raw position across the two frames.
+                pos = 0
+                if active:
+                    l1_date = pattern_bars_df["date"].iloc[active.l1_pos]
+                    matches = bars_df.index[bars_df["date"] == l1_date]
+                    if len(matches):
+                        pos = int(matches[0])
             av, _, _ = ind.anchored_vwap(
                 bars_df["vwap"].fillna(bars_df["close"]), bars_df["volume"], pos)
             points = [{"timestamp": int(pd.Timestamp(bars_df["date"].iloc[i]).timestamp() * 1000),

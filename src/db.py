@@ -163,8 +163,76 @@ CREATE TABLE IF NOT EXISTS features_1d (
     PRIMARY KEY (isin, date)
 );
 
-CREATE TABLE IF NOT EXISTS features_1w AS SELECT * FROM features_1d WHERE 1=0;
-CREATE TABLE IF NOT EXISTS features_1m AS SELECT * FROM features_1d WHERE 1=0;
+-- Same columns and PK as features_1d, kept in sync by hand (`CREATE TABLE
+-- ... AS SELECT * FROM features_1d WHERE 1=0` looks tempting here but a
+-- CTAS does not carry over the PRIMARY KEY, which silently breaks
+-- features.py's upsert — its ON CONFLICT (isin, date) target needs a real
+-- PK/UNIQUE constraint on the table, not just matching column names).
+CREATE TABLE IF NOT EXISTS features_1w (
+    isin VARCHAR NOT NULL,
+    date DATE    NOT NULL,
+    bars_available INTEGER,
+
+    sma10 FLOAT, sma20 FLOAT, sma50 FLOAT, sma100 FLOAT, sma200 FLOAT,
+    sma50_slope FLOAT, sma200_slope FLOAT,
+    ema10 FLOAT, ema21 FLOAT,
+    hma10 FLOAT, hma50 FLOAT,
+    supertrend FLOAT, st_dir SMALLINT,
+
+    atr14 FLOAT, adr_pct20 FLOAT,
+    bb_mid FLOAT, bb_upper FLOAT, bb_lower FLOAT, bb_width FLOAT,
+
+    rsi14 FLOAT, adx14 FLOAT, di_plus FLOAT, di_minus FLOAT,
+    macd FLOAT, macd_signal FLOAT,
+
+    vol_sma20 DOUBLE, rvol FLOAT,
+    turnover DOUBLE, turnover_sma20 DOUBLE,
+    deliv_pct_sma20 FLOAT, deliv_surge FLOAT,
+    avg_trade_size FLOAT,
+
+    dist_sma200_pct FLOAT,
+    dist_52w_high_pct FLOAT, dist_52w_low_pct FLOAT,
+    sma_compression FLOAT,
+    sma_stack VARCHAR,
+
+    ret_55d FLOAT, rs_vs_bench FLOAT, rs_rank_pct FLOAT,
+
+    feature_version VARCHAR,
+    PRIMARY KEY (isin, date)
+);
+
+CREATE TABLE IF NOT EXISTS features_1m (
+    isin VARCHAR NOT NULL,
+    date DATE    NOT NULL,
+    bars_available INTEGER,
+
+    sma10 FLOAT, sma20 FLOAT, sma50 FLOAT, sma100 FLOAT, sma200 FLOAT,
+    sma50_slope FLOAT, sma200_slope FLOAT,
+    ema10 FLOAT, ema21 FLOAT,
+    hma10 FLOAT, hma50 FLOAT,
+    supertrend FLOAT, st_dir SMALLINT,
+
+    atr14 FLOAT, adr_pct20 FLOAT,
+    bb_mid FLOAT, bb_upper FLOAT, bb_lower FLOAT, bb_width FLOAT,
+
+    rsi14 FLOAT, adx14 FLOAT, di_plus FLOAT, di_minus FLOAT,
+    macd FLOAT, macd_signal FLOAT,
+
+    vol_sma20 DOUBLE, rvol FLOAT,
+    turnover DOUBLE, turnover_sma20 DOUBLE,
+    deliv_pct_sma20 FLOAT, deliv_surge FLOAT,
+    avg_trade_size FLOAT,
+
+    dist_sma200_pct FLOAT,
+    dist_52w_high_pct FLOAT, dist_52w_low_pct FLOAT,
+    sma_compression FLOAT,
+    sma_stack VARCHAR,
+
+    ret_55d FLOAT, rs_vs_bench FLOAT, rs_rank_pct FLOAT,
+
+    feature_version VARCHAR,
+    PRIMARY KEY (isin, date)
+);
 
 -- Anchored VWAP lives in its own table: it is O(bars since anchor) PER anchor,
 -- so only the standard anchors are stored. Ad-hoc anchors are computed live.
@@ -321,8 +389,30 @@ _MIGRATIONS = [
 ]
 
 
+def _drop_features_1w1m_if_missing_pk(con: duckdb.DuckDBPyConnection) -> None:
+    """One-time repair for DBs created before features_1w/1m had an explicit
+    schema: they used to be `CREATE TABLE ... AS SELECT * FROM features_1d
+    WHERE 1=0`, which copies columns but not the PRIMARY KEY, silently
+    breaking features.py's `ON CONFLICT (isin, date)` upsert. Both are Layer
+    2 (fully rebuildable), so dropping and letting SCHEMA recreate them with
+    the real PK is safe — never touches Layer 1 facts."""
+    for t in ("features_1w", "features_1m"):
+        exists = con.execute(
+            "SELECT COUNT(*) FROM information_schema.tables WHERE table_name = ?", [t]
+        ).fetchone()[0]
+        if not exists:
+            continue
+        has_pk = con.execute("""
+            SELECT COUNT(*) FROM duckdb_constraints()
+            WHERE table_name = ? AND constraint_type = 'PRIMARY KEY'
+        """, [t]).fetchone()[0]
+        if not has_pk:
+            con.execute(f"DROP TABLE {t}")
+
+
 def init_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Create every table and apply migrations. Safe to run repeatedly."""
+    _drop_features_1w1m_if_missing_pk(con)
     for stmt in SCHEMA.split(";"):
         s = stmt.strip()
         if s:
