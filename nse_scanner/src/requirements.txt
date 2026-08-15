@@ -8,8 +8,14 @@ PyYAML>=6.0
 yfinance>=0.2.50
 requests>=2.32.0
 
-# UI
+# UI — v2 (NiceGUI), kept running as the fallback until the v3 cutover (SCANNER_DESIGN.md §15)
 nicegui>=3.16.0
+
+# API — v3 (FastAPI + separate React frontend in nse_scanner_ui/). Already present as
+# transitive deps of nicegui; pinned explicitly here since they're a direct dependency now.
+fastapi>=0.141.0
+uvicorn>=0.52.0
+pydantic>=2.13.0
 
 # Excel export
 openpyxl>=3.1.0
