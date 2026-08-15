@@ -1,11 +1,13 @@
 import type { ReactNode } from "react"
 import { Route, Routes } from "react-router-dom"
 
+import { ChartDrawer } from "@/components/chart/ChartDrawer"
 import { Header } from "@/components/shell/Header"
 import { HealthRail } from "@/components/shell/HealthRail"
 import { Nav } from "@/components/shell/Nav"
 import Data from "@/routes/Data"
 import Placeholder from "@/routes/Placeholder"
+import Today from "@/routes/Today"
 
 function Layout({ children }: { children: ReactNode }) {
   return (
@@ -18,6 +20,7 @@ function Layout({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
+      <ChartDrawer />
     </div>
   )
 }
@@ -25,7 +28,7 @@ function Layout({ children }: { children: ReactNode }) {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Layout><Placeholder screen="Today" phase="Phase 2" /></Layout>} />
+      <Route path="/" element={<Layout><Today /></Layout>} />
       <Route path="/scan" element={<Layout><Placeholder screen="Scan" phase="Phase 4" /></Layout>} />
       <Route path="/chart" element={<Layout><Placeholder screen="Chart" phase="Phase 3" /></Layout>} />
       <Route path="/chart/:symbol" element={<Layout><Placeholder screen="Chart" phase="Phase 3" /></Layout>} />

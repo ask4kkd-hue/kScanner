@@ -66,7 +66,28 @@ check("GET /api/data/symbol-gaps -> 200", r.status_code == 200, r.text)
 check("returns a list", isinstance(r.json(), list))
 
 # =====================================================================
-print("\n[3] CORS is configured for the Vite dev server")
+print("\n[3] Today router (aggregate endpoint)")
+
+r = client.get("/api/today")
+check("GET /api/today -> 200", r.status_code == 200, r.text)
+body = r.json()
+check("has all top-level sections", set(body.keys()) == {
+    "status", "positions", "total_open_pnl", "at_risk_count", "opportunities",
+    "pnl", "equity_curve", "watchlist_near_trigger",
+}, str(body.keys()))
+check("status has a regime string", isinstance(body["status"]["regime"], str), str(body["status"]))
+check("opportunities has all three timeframes in order", [o["timeframe"] for o in body["opportunities"]] == ["1d", "1w", "1m"], str(body["opportunities"]))
+check("positions is a list", isinstance(body["positions"], list))
+if body["positions"]:
+    p = body["positions"][0]
+    check("position row has status in {HOLD,WATCH,REVIEW}", p["status"] in ("HOLD", "WATCH", "REVIEW"), str(p))
+    check("no leaked internal _close field", "_close" not in p, str(p))
+check("pnl has all five keys", set(body["pnl"].keys()) == {
+    "today", "this_week", "this_month", "all_time", "unrealised"
+}, str(body["pnl"]))
+
+# =====================================================================
+print("\n[4] CORS is configured for the Vite dev server")
 r = client.options("/api/data/table-counts", headers={
     "Origin": "http://localhost:5173",
     "Access-Control-Request-Method": "GET",
