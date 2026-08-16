@@ -292,6 +292,84 @@ def _eval_condition(row: pd.Series, cond: str) -> bool:
     raise ValueError(f"Cannot parse condition: {cond}")
 
 
+def _resolve_date_range(sample: str, date_from: str | None = None,
+                        date_to: str | None = None) -> tuple[date, date]:
+    """Same in/out-of-sample resolution used by every backtest entry point."""
+    d_from = pd.to_datetime(date_from or BT["date_from"]).date()
+    if sample == "in":
+        d_to = pd.to_datetime(date_to or BT["in_sample_end"]).date()
+    else:
+        d_from = pd.to_datetime(BT["out_sample_start"]).date()
+        d_to = pd.to_datetime(date_to or date.today()).date()
+    return d_from, d_to
+
+
+def _prepare_universe(con, d_from: date, d_to: date,
+                      limit_symbols: int | None = None) -> dict:
+    """
+    Load every symbol's bars+features for [d_from, d_to] in ONE bulk query
+    and run W-pattern detection ONCE per symbol, instead of once per symbol
+    PER CELL. Pattern detection depends only on price history + the fixed
+    `pattern:` config block -- never on entry/exit variant or preset -- so
+    a sweep's 30 cells (or marginal_contribution's 8 presets) can all share
+    this single pass. Returns {isin: {symbol, df, atr_series, patterns}}.
+    """
+    syms = con.execute("""
+        SELECT DISTINCT i.isin, i.symbol
+        FROM instruments i JOIN bars_1d b ON b.isin = i.isin
+        ORDER BY i.symbol
+    """).df()
+    if limit_symbols:
+        syms = syms.head(limit_symbols)
+
+    con.register("tmp_universe_syms", syms)
+    bulk = con.execute("""
+        SELECT b.isin, b.date, b.open, b.high, b.low, b.close, b.volume,
+               b.vwap, b.deliv_pct,
+               f.sma10, f.sma20, f.sma50, f.sma100, f.sma200,
+               f.sma50_slope, f.sma200_slope, f.sma_stack, f.sma_compression,
+               f.atr14, f.adr_pct20, f.adx14, f.rsi14,
+               f.turnover_sma20, f.deliv_pct_sma20, f.rvol,
+               f.dist_sma200_pct, f.rs_rank_pct, f.bars_available
+        FROM bars_1d b
+        JOIN tmp_universe_syms s ON s.isin = b.isin
+        LEFT JOIN features_1d f ON f.isin = b.isin AND f.date = b.date
+        WHERE b.date BETWEEN ? AND ?
+        ORDER BY b.isin, b.date
+    """, [d_from, d_to]).df()
+    con.unregister("tmp_universe_syms")
+
+    # groupby, not a per-symbol boolean filter -- filtering `bulk` once per
+    # symbol would silently reintroduce an O(n_symbols * n_rows) scan.
+    grouped = bulk.groupby("isin", sort=False)
+
+    universe = {}
+    for isin, symbol in zip(syms["isin"], syms["symbol"]):
+        if isin not in grouped.groups:
+            continue
+        df = grouped.get_group(isin).drop(columns="isin").reset_index(drop=True)
+        if len(df) < 260:
+            continue
+
+        atr_series = df["atr14"]
+        if atr_series.isna().all():
+            atr_series = ind.atr(df["high"], df["low"], df["close"])
+
+        patterns = pat.find_w_patterns(
+            df, atr_series,
+            zigzag_pct=PAT["zigzag_pct"],
+            min_separation=PAT["min_separation"],
+            max_separation=PAT["max_separation"],
+            require_undercut=PAT["require_undercut"],
+            min_depth_pct=PAT["min_depth_pct"],
+            exclude_locked_bars=PAT["exclude_locked_bars"],
+            confirm_max_wait=PAT["entry_max_wait"],
+        )
+        universe[isin] = {"symbol": symbol, "df": df,
+                          "atr_series": atr_series, "patterns": patterns}
+    return universe
+
+
 def run_backtest(
     con,
     preset_name: str,
@@ -302,17 +380,13 @@ def run_backtest(
     sample: str = "in",
     label: str = "",
     limit_symbols: int | None = None,
+    _universe: dict | None = None,
 ) -> str:
     """Run one (preset x entry x exit) cell. Returns run_id."""
     preset = resolve_preset(CFG, preset_name)
     conditions = preset.get("conditions", [])
 
-    d_from = pd.to_datetime(date_from or BT["date_from"]).date()
-    if sample == "in":
-        d_to = pd.to_datetime(date_to or BT["in_sample_end"]).date()
-    else:
-        d_from = pd.to_datetime(BT["out_sample_start"]).date()
-        d_to = pd.to_datetime(date_to or date.today()).date()
+    d_from, d_to = _resolve_date_range(sample, date_from, date_to)
 
     run_id = uuid.uuid4().hex[:12]
     fv = con.execute(
@@ -325,39 +399,18 @@ def run_backtest(
         "; ".join(conditions), config_hash(preset), fv, d_from, d_to, sample,
     ])
 
-    syms = con.execute("""
-        SELECT DISTINCT i.isin, i.symbol
-        FROM instruments i JOIN bars_1d b ON b.isin = i.isin
-        ORDER BY i.symbol
-    """).df()
-    if limit_symbols:
-        syms = syms.head(limit_symbols)
+    universe = _universe if _universe is not None else _prepare_universe(
+        con, d_from, d_to, limit_symbols)
 
     log.info("[%s] %s | %s/%s | %s..%s | %d symbols",
-             run_id, preset_name, entry_variant, exit_variant, d_from, d_to, len(syms))
+             run_id, preset_name, entry_variant, exit_variant, d_from, d_to, len(universe))
 
     trades, curves = [], []
     seq = 0
 
-    for _, s in syms.iterrows():
-        df = load_symbol_frame(con, s["isin"], d_from, d_to)
-        if len(df) < 260:
-            continue
-
-        atr_series = df["atr14"]
-        if atr_series.isna().all():
-            atr_series = ind.atr(df["high"], df["low"], df["close"])
-
-        found = pat.find_w_patterns(
-            df, atr_series,
-            zigzag_pct=PAT["zigzag_pct"],
-            min_separation=PAT["min_separation"],
-            max_separation=PAT["max_separation"],
-            require_undercut=PAT["require_undercut"],
-            min_depth_pct=PAT["min_depth_pct"],
-            exclude_locked_bars=PAT["exclude_locked_bars"],
-            confirm_max_wait=PAT["entry_max_wait"],
-        )
+    for isin, u in universe.items():
+        symbol, df = u["symbol"], u["df"]
+        atr_series, found = u["atr_series"], u["patterns"]
 
         for p in found:
             extra_entry = {"sma20": df["sma20"].to_numpy()}
@@ -407,7 +460,7 @@ def run_backtest(
             seq += 1
             trades.append({
                 "run_id": run_id, "trade_seq": seq,
-                "isin": s["isin"], "symbol": s["symbol"],
+                "isin": isin, "symbol": symbol,
                 "signal_date": df["date"].iloc[sig_pos],
                 "entry_date": df["date"].iloc[entry_pos],
                 "entry_price": entry_price, "qty": qty,
@@ -558,11 +611,15 @@ def sweep(con, preset: str, sample: str = "in",
     30 cells, each with a REASON — which is the test for legitimate sweeping.
     Brute-forcing thousands of combinations is how you find noise.
     """
+    d_from, d_to = _resolve_date_range(sample)
+    universe = _prepare_universe(con, d_from, d_to, limit_symbols)
+
     rows = []
     for e in BT["entry_variants"]:
         for x in BT["exit_variants"]:
-            rid = run_backtest(con, preset, e, x, sample=sample,
-                               limit_symbols=limit_symbols)
+            rid = run_backtest(con, preset, e, x, date_from=d_from, date_to=d_to,
+                               sample=sample, limit_symbols=limit_symbols,
+                               _universe=universe)
             m = con.execute(
                 "SELECT * FROM backtest_metrics WHERE run_id = ?", [rid]).df()
             if not m.empty:
@@ -588,9 +645,13 @@ def marginal_contribution(con, base_preset: str, candidates: List[str],
     helped you — it has found a coincidence. The trade count is shown so you
     cannot miss that.
     """
+    d_from, d_to = _resolve_date_range("in")
+    universe = _prepare_universe(con, d_from, d_to, limit_symbols)
+
     rows = []
     for name in [base_preset] + candidates:
-        rid = run_backtest(con, name, entry, exit_, limit_symbols=limit_symbols)
+        rid = run_backtest(con, name, entry, exit_, date_from=d_from, date_to=d_to,
+                           limit_symbols=limit_symbols, _universe=universe)
         m = con.execute("SELECT * FROM backtest_metrics WHERE run_id = ?",
                         [rid]).df()
         if m.empty:
