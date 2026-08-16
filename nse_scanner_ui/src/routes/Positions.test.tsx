@@ -15,10 +15,12 @@ vi.mock("@/api/holdings", async (importOriginal) => ({
         qty: 10, stop_price: 1250, close: 1330, days_held: 10, pnl_pct: 2.3,
         pnl_rupees: 300, r_multiple: 0.6, mae_pct: -1.2, mfe_pct: 3.1,
         status: "HOLD", reasons: ["within normal range"],
+        lifecycle_status: "OPEN", remaining_qty: 10, partial_pnl_rupees: null,
       },
     ]),
     open: vi.fn(),
     close: vi.fn().mockResolvedValue({ trade_id: 1, net_pnl: 300 }),
+    partialClose: vi.fn().mockResolvedValue({ partial_id: 1, trade_id: 1, qty: 4, net_pnl: 120, remaining_qty: 6 }),
   },
 }))
 
@@ -48,7 +50,7 @@ describe("Positions screen", () => {
     renderPositions()
     await screen.findByText("RELIANCE")
 
-    await user.click(screen.getByRole("button", { name: "×" }))
+    await user.click(screen.getByRole("button", { name: "close" }))
     expect(await screen.findByRole("heading", { name: "Close RELIANCE" })).toBeInTheDocument()
 
     await user.type(screen.getByPlaceholderText("Exit price"), "1340")
@@ -56,6 +58,26 @@ describe("Positions screen", () => {
 
     expect(vi.mocked(holdingsApi.close)).toHaveBeenCalledWith(
       1, expect.objectContaining({ exit_price: 1340, followed_plan: true })
+    )
+  }, 10000)
+
+  it("closing less than the remaining qty books a partial exit instead of a full close", async () => {
+    const user = userEvent.setup()
+    renderPositions()
+    await screen.findByText("RELIANCE")
+
+    await user.click(screen.getByRole("button", { name: "close" }))
+    expect(await screen.findByRole("heading", { name: "Close RELIANCE" })).toBeInTheDocument()
+
+    await user.type(screen.getByPlaceholderText("Exit price"), "1340")
+    const qtyInput = screen.getByPlaceholderText("Qty")
+    await user.clear(qtyInput)
+    await user.type(qtyInput, "4")
+
+    await user.click(screen.getByRole("button", { name: "Book partial exit" }))
+
+    expect(vi.mocked(holdingsApi.partialClose)).toHaveBeenCalledWith(
+      1, expect.objectContaining({ exit_price: 1340, qty: 4 })
     )
   }, 10000)
 })

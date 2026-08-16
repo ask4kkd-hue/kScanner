@@ -1,6 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
-import { holdingsApi, type TradeCloseRequest, type TradeOpenRequest, type TradeUpdateRequest } from "@/api/holdings"
+import {
+  holdingsApi,
+  type TradeCloseRequest,
+  type TradeOpenRequest,
+  type TradePartialCloseRequest,
+  type TradeUpdateRequest,
+} from "@/api/holdings"
 
 export const useOpenPositions = () =>
   useQuery({ queryKey: ["trades", "open"], queryFn: holdingsApi.openPositions })
@@ -21,6 +27,18 @@ export const useCloseTrade = () => {
   return useMutation({
     mutationFn: ({ tradeId, body }: { tradeId: number; body: TradeCloseRequest }) =>
       holdingsApi.close(tradeId, body),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["trades", "open"] })
+      queryClient.invalidateQueries({ queryKey: ["today"] })
+    },
+  })
+}
+
+export const usePartialCloseTrade = () => {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ tradeId, body }: { tradeId: number; body: TradePartialCloseRequest }) =>
+      holdingsApi.partialClose(tradeId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trades", "open"] })
       queryClient.invalidateQueries({ queryKey: ["today"] })

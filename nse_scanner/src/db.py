@@ -379,6 +379,21 @@ CREATE TABLE IF NOT EXISTS trade_snapshot (
     trade_id INTEGER, metric VARCHAR, value DOUBLE
 );
 
+-- A trade can be exited in slices without closing the whole position.
+-- trades.qty stays the ORIGINAL total bought (a fact, never mutated);
+-- remaining open qty is always DERIVED as qty - SUM(trade_partials.qty),
+-- never stored, same rule as everything else in this schema.
+CREATE SEQUENCE IF NOT EXISTS trade_partial_id_seq START 1;
+
+CREATE TABLE IF NOT EXISTS trade_partials (
+    partial_id INTEGER PRIMARY KEY,
+    trade_id INTEGER,
+    exit_date DATE, exit_price DOUBLE, qty INTEGER,
+    exit_reason VARCHAR,
+    gross_pnl DOUBLE, costs DOUBLE, net_pnl DOUBLE,
+    note VARCHAR
+);
+
 CREATE TABLE IF NOT EXISTS trade_tags (
     trade_id INTEGER, tag VARCHAR
 );

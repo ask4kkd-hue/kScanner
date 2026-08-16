@@ -26,7 +26,7 @@ vi.mock("@/api/performance", async (importOriginal) => ({
 const FIXTURE: TodayResponse = {
   status: { stale: false, latest_bar: "2026-08-14", latest_cal: "2026-08-14", validation_fails_7d: 0, regime: "bull", sessions_behind: null },
   positions: [
-    { trade_id: 1, symbol: "RELIANCE", entry_date: "2026-08-01", entry_price: 1300, qty: 10, stop_price: 1250, days_held: 10, pnl_pct: 2.5, r_multiple: 0.5, status: "HOLD", reasons: ["within normal range"] },
+    { trade_id: 1, symbol: "RELIANCE", entry_date: "2026-08-01", entry_price: 1300, qty: 10, stop_price: 1250, days_held: 10, pnl_pct: 2.5, r_multiple: 0.5, status: "HOLD", reasons: ["within normal range"], lifecycle_status: "OPEN", remaining_qty: 10, partial_pnl_rupees: null },
   ],
   total_open_pnl: 3250,
   at_risk_count: 0,

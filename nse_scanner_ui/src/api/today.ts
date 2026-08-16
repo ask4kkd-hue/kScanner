@@ -21,6 +21,9 @@ export interface PositionRow {
   r_multiple: number | null
   status: "HOLD" | "WATCH" | "REVIEW"
   reasons: string[]
+  lifecycle_status: "OPEN" | "PARTIAL_PROFIT" | "PARTIAL_LOSS" | "CLOSED"
+  remaining_qty: number
+  partial_pnl_rupees: number | null
 }
 
 export interface OpportunitySignal {

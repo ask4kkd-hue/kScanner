@@ -9,24 +9,28 @@ import {
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
-import { useCloseTrade } from "@/queries/holdings"
+import { useCloseTrade, usePartialCloseTrade } from "@/queries/holdings"
 
 const EXIT_REASONS = ["target", "stop", "time_stop", "discretionary"] as const
 const BEHAVIOUR_TAGS = ["chased_entry", "moved_stop", "revenge_trade", "oversized", "exited_early"]
 
 export function CloseDialog({
-  open, onOpenChange, tradeId, symbol, onSaved,
+  open, onOpenChange, tradeId, symbol, remainingQty, onSaved,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   tradeId: number
   symbol: string
+  remainingQty: number
   onSaved?: () => void
 }) {
   const closeTrade = useCloseTrade()
+  const partialCloseTrade = usePartialCloseTrade()
+  const pending = closeTrade.isPending || partialCloseTrade.isPending
 
   const [exitDate, setExitDate] = useState(() => new Date().toISOString().slice(0, 10))
   const [exitPrice, setExitPrice] = useState("")
+  const [qty, setQty] = useState(String(remainingQty))
   const [reason, setReason] = useState<(typeof EXIT_REASONS)[number]>("discretionary")
   const [followedPlan, setFollowedPlan] = useState(true)
   const [tags, setTags] = useState<string[]>([])
@@ -41,6 +45,27 @@ export function CloseDialog({
       toast.warning("Exit price is required.")
       return
     }
+    const qtyNum = Number(qty)
+    if (!qtyNum || qtyNum <= 0 || qtyNum > remainingQty) {
+      toast.warning(`Qty must be between 1 and ${remainingQty}.`)
+      return
+    }
+
+    if (qtyNum < remainingQty) {
+      partialCloseTrade.mutate({
+        tradeId,
+        body: { exit_date: exitDate, exit_price: Number(exitPrice), qty: qtyNum, exit_reason: reason, note },
+      }, {
+        onSuccess: () => {
+          toast.success(`Booked partial exit on ${qtyNum} ${symbol}.`)
+          onOpenChange(false)
+          onSaved?.()
+        },
+        onError: (err) => toast.error(err instanceof Error ? err.message : "Could not book partial exit."),
+      })
+      return
+    }
+
     closeTrade.mutate({
       tradeId,
       body: {
@@ -57,6 +82,8 @@ export function CloseDialog({
     })
   }
 
+  const isPartial = Number(qty) > 0 && Number(qty) < remainingQty
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
@@ -66,32 +93,44 @@ export function CloseDialog({
             <Input type="date" value={exitDate} onChange={(e) => setExitDate(e.target.value)} className="w-36" />
             <Input type="number" step="0.05" placeholder="Exit price" value={exitPrice}
                   onChange={(e) => setExitPrice(e.target.value)} className="w-32" />
+            <Input type="number" min={1} max={remainingQty} placeholder="Qty" value={qty}
+                  onChange={(e) => setQty(e.target.value)} className="w-24" />
           </div>
+          <p className="text-muted-foreground text-xs">
+            {remainingQty} qty remaining.{" "}
+            {isPartial ? "Exiting less than that books a partial exit and keeps the rest open." : "Exiting all of it closes the position."}
+          </p>
           <Select value={reason} onValueChange={(v) => setReason(v as typeof reason)}>
             <SelectTrigger className="w-48"><SelectValue /></SelectTrigger>
             <SelectContent>
               {EXIT_REASONS.map((r) => <SelectItem key={r} value={r}>{r}</SelectItem>)}
             </SelectContent>
           </Select>
-          <label className="flex items-center gap-1.5 text-sm">
-            <Checkbox checked={followedPlan} onCheckedChange={(v) => setFollowedPlan(v === true)} />
-            Followed the plan
-          </label>
-          <div className="flex flex-wrap gap-1">
-            {BEHAVIOUR_TAGS.map((tag) => (
-              <Button
-                key={tag} size="sm" variant={tags.includes(tag) ? "default" : "outline"}
-                className="h-6 px-2 text-xs" onClick={() => toggleTag(tag)}
-              >
-                {tag}
-              </Button>
-            ))}
-          </div>
-          <Textarea placeholder="Review note" value={note} onChange={(e) => setNote(e.target.value)} />
+          {!isPartial && (
+            <label className="flex items-center gap-1.5 text-sm">
+              <Checkbox checked={followedPlan} onCheckedChange={(v) => setFollowedPlan(v === true)} />
+              Followed the plan
+            </label>
+          )}
+          {!isPartial && (
+            <div className="flex flex-wrap gap-1">
+              {BEHAVIOUR_TAGS.map((tag) => (
+                <Button
+                  key={tag} size="sm" variant={tags.includes(tag) ? "default" : "outline"}
+                  className="h-6 px-2 text-xs" onClick={() => toggleTag(tag)}
+                >
+                  {tag}
+                </Button>
+              ))}
+            </div>
+          )}
+          <Textarea placeholder={isPartial ? "Note (optional)" : "Review note"} value={note} onChange={(e) => setNote(e.target.value)} />
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button variant="destructive" onClick={save} disabled={closeTrade.isPending}>Close position</Button>
+          <Button variant="destructive" onClick={save} disabled={pending}>
+            {isPartial ? "Book partial exit" : "Close position"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

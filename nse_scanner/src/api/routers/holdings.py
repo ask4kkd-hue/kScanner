@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_cursor
 from api.schemas.today import PositionRow
-from api.schemas.trades import TradeCloseRequest, TradeOpenRequest, TradeUpdateRequest
+from api.schemas.trades import (
+    TradeCloseRequest, TradeOpenRequest, TradePartialCloseRequest, TradeUpdateRequest,
+)
 from api.services.holdings import list_open_positions
 
 router = APIRouter(prefix="/trades", tags=["holdings"])
@@ -54,6 +56,17 @@ def post_close_trade(trade_id: int, body: TradeCloseRequest, cur=Depends(get_cur
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Could not close position: {e}") from e
     return result
+
+
+@router.post("/{trade_id}/partial-close")
+def post_partial_close_trade(trade_id: int, body: TradePartialCloseRequest, cur=Depends(get_cursor)) -> dict:
+    try:
+        return jr.partial_close(
+            cur, trade_id, body.exit_date, body.exit_price, body.qty,
+            body.exit_reason, note=body.note,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Could not partially close position: {e}") from e
 
 
 @router.patch("/{trade_id}")

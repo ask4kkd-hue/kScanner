@@ -37,3 +37,11 @@ class TradeCloseRequest(BaseModel):
     followed_plan: bool = True
     review_note: str = ""
     tags: list[str] = []
+
+
+class TradePartialCloseRequest(BaseModel):
+    exit_date: date
+    exit_price: float
+    qty: int
+    exit_reason: str  # target | stop | time_stop | discretionary
+    note: str = ""

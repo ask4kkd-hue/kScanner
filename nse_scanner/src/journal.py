@@ -85,16 +85,89 @@ def snapshot_features(con, trade_id: int, isin: str | None, on: date) -> int:
     return n
 
 
+def remaining_qty(con, trade_id: int) -> int:
+    """
+    Original qty minus every partial exit booked against this trade so far.
+
+    A CLOSED trade is always 0, regardless of the arithmetic — close_trade()
+    settles the final leg directly on `trades` rather than inserting one more
+    trade_partials row for itself, so the qty-minus-partials formula alone
+    would still show leftover qty after a full close.
+    """
+    row = con.execute("""
+        SELECT t.status, t.qty - COALESCE(
+            (SELECT SUM(qty) FROM trade_partials WHERE trade_id = t.trade_id), 0)
+        FROM trades t WHERE t.trade_id = ?
+    """, [trade_id]).fetchone()
+    if row is None:
+        raise ValueError(f"No trade {trade_id}")
+    status, remaining = row
+    return 0 if status == "closed" else int(remaining)
+
+
+def partial_close(con, trade_id: int, exit_date: date, exit_price: float,
+                  qty: int, exit_reason: str, note: str = "",
+                  costs: float = 0.0) -> dict:
+    """
+    Book a partial exit: sell part of an open position, keep the rest running.
+
+    Exiting exactly the remaining qty is a FULL close and must go through
+    close_trade() instead — enforced here so the two paths never overlap and
+    a position can't end up "open" with zero qty left.
+    """
+    t = con.execute("SELECT status FROM trades WHERE trade_id = ?", [trade_id]).fetchone()
+    if t is None:
+        raise ValueError(f"No trade {trade_id}")
+    if t[0] != "open":
+        raise ValueError(f"Trade {trade_id} is not open.")
+
+    remaining = remaining_qty(con, trade_id)
+    if not (0 < qty < remaining):
+        raise ValueError(
+            f"qty must be between 1 and {remaining - 1} (remaining qty is {remaining}; "
+            f"to exit all of it, close the position instead).")
+
+    entry_price = con.execute(
+        "SELECT entry_price FROM trades WHERE trade_id = ?", [trade_id]).fetchone()[0]
+    gross = (exit_price - entry_price) * qty
+    net = gross - costs
+
+    partial_id = con.execute("SELECT nextval('trade_partial_id_seq')").fetchone()[0]
+    con.execute("""
+        INSERT INTO trade_partials
+            (partial_id, trade_id, exit_date, exit_price, qty, exit_reason,
+             gross_pnl, costs, net_pnl, note)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, [partial_id, trade_id, exit_date, exit_price, qty, exit_reason,
+          gross, costs, net, note])
+
+    return {"partial_id": partial_id, "trade_id": trade_id, "qty": qty,
+            "net_pnl": net, "remaining_qty": remaining - qty}
+
+
 def close_trade(con, trade_id: int, exit_date: date, exit_price: float,
                 exit_reason: str, followed_plan: bool = True,
                 review_note: str = "", costs: float = 0.0) -> dict:
-    """Close a position and compute every derived stat, including MAE/MFE."""
+    """
+    Close whatever qty remains open (the whole position, if it was never
+    partially exited) and compute every derived stat, including MAE/MFE.
+
+    If earlier partial exits already booked part of this trade, the stored
+    net_pnl/gross_pnl/costs become the WHOLE TRADE's totals — every partial
+    leg's net_pnl plus this final leg's — and r_multiple becomes the
+    qty-weighted average R across every leg, so a closed trade's numbers
+    describe the full position's outcome, not just the last slice sold.
+    """
     t = con.execute("SELECT * FROM trades WHERE trade_id = ?", [trade_id]).df()
     if t.empty:
         raise ValueError(f"No trade {trade_id}")
     t = t.iloc[0]
 
-    gross = (exit_price - t["entry_price"]) * t["qty"]
+    close_qty = remaining_qty(con, trade_id)
+    if close_qty <= 0:
+        raise ValueError(f"Trade {trade_id} has no remaining qty to close.")
+
+    gross = (exit_price - t["entry_price"]) * close_qty
     net = gross - costs
     risk = t["entry_price"] - t["stop_price"]
     r = (exit_price - t["entry_price"]) / risk if risk > 0 else np.nan
@@ -103,16 +176,35 @@ def close_trade(con, trade_id: int, exit_date: date, exit_price: float,
     mae, mfe = compute_mae_mfe(con, t["isin"], t["entry_date"], exit_date,
                                t["entry_price"])
 
+    partials = con.execute("""
+        SELECT qty, exit_price, gross_pnl, costs, net_pnl
+        FROM trade_partials WHERE trade_id = ?
+    """, [trade_id]).df()
+
+    total_gross, total_costs, total_net = gross, costs, net
+    legs_r = [(r, close_qty)]
+    if not partials.empty:
+        total_gross += partials["gross_pnl"].sum()
+        total_costs += partials["costs"].sum()
+        total_net += partials["net_pnl"].sum()
+        for _, prow in partials.iterrows():
+            leg_r = (prow["exit_price"] - t["entry_price"]) / risk if risk > 0 else np.nan
+            legs_r.append((leg_r, prow["qty"]))
+
+    total_qty = sum(q for _, q in legs_r)
+    blended_r = (sum(rr * q for rr, q in legs_r) / total_qty
+                if risk > 0 and total_qty else np.nan)
+
     con.execute("""
         UPDATE trades SET
             exit_date=?, exit_price=?, exit_reason=?,
             gross_pnl=?, costs=?, net_pnl=?, r_multiple=?, holding_days=?,
             mae_pct=?, mfe_pct=?, followed_plan=?, review_note=?, status='closed'
         WHERE trade_id=?
-    """, [exit_date, exit_price, exit_reason, gross, costs, net, r, hold,
-          mae, mfe, followed_plan, review_note, trade_id])
+    """, [exit_date, exit_price, exit_reason, total_gross, total_costs, total_net,
+          blended_r, hold, mae, mfe, followed_plan, review_note, trade_id])
 
-    return {"trade_id": trade_id, "net_pnl": net, "r_multiple": r,
+    return {"trade_id": trade_id, "net_pnl": total_net, "r_multiple": blended_r,
             "holding_days": hold, "mae_pct": mae, "mfe_pct": mfe}
 
 
@@ -149,6 +241,7 @@ def delete_trade(con, trade_id: int) -> None:
     """
     con.execute("DELETE FROM trade_tags WHERE trade_id = ?", [trade_id])
     con.execute("DELETE FROM trade_snapshot WHERE trade_id = ?", [trade_id])
+    con.execute("DELETE FROM trade_partials WHERE trade_id = ?", [trade_id])
     con.execute("DELETE FROM trades WHERE trade_id = ?", [trade_id])
 
 

@@ -16,6 +16,9 @@ export interface PositionRow {
   mfe_pct: number | null
   status: "HOLD" | "WATCH" | "REVIEW"
   reasons: string[]
+  lifecycle_status: "OPEN" | "PARTIAL_PROFIT" | "PARTIAL_LOSS" | "CLOSED"
+  remaining_qty: number
+  partial_pnl_rupees: number | null
 }
 
 export interface TradeOpenRequest {
@@ -38,6 +41,14 @@ export interface TradeCloseRequest {
   tags?: string[]
 }
 
+export interface TradePartialCloseRequest {
+  exit_date: string
+  exit_price: number
+  qty: number
+  exit_reason: "target" | "stop" | "time_stop" | "discretionary"
+  note?: string
+}
+
 export interface TradeUpdateRequest {
   entry_date?: string
   entry_price?: number
@@ -52,6 +63,10 @@ export const holdingsApi = {
   open: (body: TradeOpenRequest) => api.post<{ trade_id: number }>("/api/trades", body),
   close: (tradeId: number, body: TradeCloseRequest) =>
     api.post<{ trade_id: number; net_pnl: number }>(`/api/trades/${tradeId}/close`, body),
+  partialClose: (tradeId: number, body: TradePartialCloseRequest) =>
+    api.post<{ partial_id: number; trade_id: number; qty: number; net_pnl: number; remaining_qty: number }>(
+      `/api/trades/${tradeId}/partial-close`, body,
+    ),
   update: (tradeId: number, body: TradeUpdateRequest) =>
     api.patch<{ updated: number }>(`/api/trades/${tradeId}`, body),
   remove: (tradeId: number) => api.delete<{ deleted: number }>(`/api/trades/${tradeId}`),

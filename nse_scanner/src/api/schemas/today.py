@@ -30,8 +30,11 @@ class PositionRow(BaseModel):
     r_multiple: float | None
     mae_pct: float | None
     mfe_pct: float | None
-    status: str  # HOLD | WATCH | REVIEW
+    status: str  # HOLD | WATCH | REVIEW -- advisor guidance, not position lifecycle
     reasons: list[str]
+    lifecycle_status: str  # OPEN | PARTIAL_PROFIT | PARTIAL_LOSS | CLOSED
+    remaining_qty: int
+    partial_pnl_rupees: float | None
 
 
 class OpportunitySignal(BaseModel):
