@@ -44,6 +44,8 @@ export interface ChartQuery {
   l1l2_line_style?: L1L2LineStyle
   l1l2_line_width?: number
   l1l2_label_format?: L1L2LabelFormat
+  show_entry_target?: boolean
+  target_variants?: string[]
 }
 
 export const chartApi = {
@@ -62,6 +64,8 @@ export const chartApi = {
     if (q.l1l2_line_style) params.set("l1l2_line_style", q.l1l2_line_style)
     if (q.l1l2_line_width) params.set("l1l2_line_width", String(q.l1l2_line_width))
     if (q.l1l2_label_format) params.set("l1l2_label_format", q.l1l2_label_format)
+    if (q.show_entry_target !== undefined) params.set("show_entry_target", String(q.show_entry_target))
+    if (q.target_variants) params.set("target_variants", q.target_variants.join(","))
     return api.get<ChartResponse>(`/api/chart/${encodeURIComponent(symbol)}?${params}`)
   },
 

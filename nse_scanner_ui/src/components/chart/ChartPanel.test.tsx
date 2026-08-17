@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { render, screen } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { describe, expect, it, vi } from "vitest"
 
 import { chartApi } from "@/api/chart"
@@ -44,10 +45,43 @@ describe("ChartPanel", () => {
 
     expect(await screen.findByText("Mark last W L1/L2")).toBeInTheDocument()
     expect(screen.getByText("D/W/M together")).toBeInTheDocument()
+    expect(screen.getByText("Mark Entry/SL/Target (dotted)")).toBeInTheDocument()
     expect(await screen.findByText("W found")).toBeInTheDocument()
     expect(vi.mocked(chartApi.get)).toHaveBeenCalledWith(
       "RELIANCE",
-      expect.objectContaining({ timeframe: "D", show_pattern: true, show_all_tf: true })
+      expect.objectContaining({
+        timeframe: "D", show_pattern: true, show_all_tf: true,
+        show_entry_target: false, target_variants: ["X3"],
+      })
+    )
+  }, 10000)
+
+  it("Mark Entry/SL/Target works while D/W/M together stays on, letting both be compared together", async () => {
+    const user = userEvent.setup()
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={client}>
+        <ChartPanel initialSymbol="RELIANCE" />
+      </QueryClientProvider>
+    )
+    await screen.findByText("W found")
+
+    const [, , entryTargetCheckbox] = screen.getAllByRole("checkbox")
+    expect(entryTargetCheckbox).not.toBeDisabled()
+
+    // Deliberately NOT touching "D/W/M together" -- it stays on (the
+    // default), and Entry/SL/Target must still take effect alongside it.
+    await user.click(screen.getByText("Mark Entry/SL/Target (dotted)"))
+    expect(await screen.findByRole("button", { name: "X3" })).toBeInTheDocument()
+
+    await user.click(screen.getByRole("button", { name: "X1" }))
+
+    expect(vi.mocked(chartApi.get)).toHaveBeenLastCalledWith(
+      "RELIANCE",
+      expect.objectContaining({
+        show_all_tf: true, show_entry_target: true,
+        target_variants: expect.arrayContaining(["X1", "X3"]),
+      })
     )
   }, 10000)
 })

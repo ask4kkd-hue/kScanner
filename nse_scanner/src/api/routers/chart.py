@@ -32,15 +32,19 @@ def get_chart(
     l1l2_line_style: str | None = None,
     l1l2_line_width: int | None = None,
     l1l2_label_format: str = "both",
+    show_entry_target: bool = False,
+    target_variants: str = "X3",
     cur=Depends(get_cursor),
 ) -> dict:
     overlay_list = [o for o in overlays.split(",") if o]
+    target_variant_list = [v for v in target_variants.split(",") if v]
     try:
         return chart_service.get_chart(
             cur, symbol, tf=timeframe, bars=bars, chart_type=chart_type,
             overlays=overlay_list, avwap=avwap, show_pattern=show_pattern, show_all_tf=show_all_tf,
             l1l2_color=l1l2_color, l1l2_line_style=l1l2_line_style, l1l2_line_width=l1l2_line_width,
             l1l2_label_format=l1l2_label_format,
+            show_entry_target=show_entry_target, target_variants=target_variant_list,
         )
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

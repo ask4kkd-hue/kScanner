@@ -24,6 +24,10 @@ FEATURES_TABLE = {"D": "features_1d", "W": "features_1w", "M": "features_1m"}
 PATTERN_LOOKBACK_BARS = CFG["chart"]["pattern_lookback_bars"]
 
 TF_MARKER_COLOR = {"D": "#c3c2b7", "W": "#D9A030", "M": "#8B5CF6"}  # theme.py REF_LINE_COLOR/WARNING + violet
+ENTRY_TARGET_COLORS = {
+    "Entry": "#3B82F6", "SL": "#EF4444",
+    "T-X1": "#10B981", "T-X2": "#F59E0B", "T-X3": "#8B5CF6",
+}
 
 
 def symbols(con) -> list[str]:
@@ -74,6 +78,9 @@ def _load_feature_row(con, isin: str, tf: str, as_of) -> dict:
 
 
 def _active_pattern(bars_df: pd.DataFrame):
+    """Returns (pattern, atr_series) -- atr_series is returned too so callers
+    that need entry/stop/target levels (see _entry_target_overlays) don't
+    have to recompute ATR a second time. (None, atr_series) if no pattern."""
     pcfg = CFG["pattern"]
     atr_s = ind.atr(bars_df["high"], bars_df["low"], bars_df["close"])
     candidates = pat.find_w_patterns(
@@ -83,7 +90,7 @@ def _active_pattern(bars_df: pd.DataFrame):
         min_depth_pct=pcfg["min_depth_pct"], exclude_locked_bars=pcfg["exclude_locked_bars"],
         confirm_max_wait=pcfg["entry_max_wait"],
     )
-    return candidates[-1] if candidates else None
+    return (candidates[-1] if candidates else None), atr_s
 
 
 def _format_label(label: str, price: float, label_format: str) -> str:
@@ -135,12 +142,67 @@ def _level_overlay_pair(tf_bars: pd.DataFrame, pos: int, price: float, label: st
             "lock": True, "styles": styles}]
 
 
+def _entry_target_overlays(pattern_bars_df: pd.DataFrame, active, atr_series: pd.Series,
+                           target_variants: list[str], label_prefix: str = "") -> list[dict]:
+    """
+    Entry/SL/target rays for the active pattern, anchored at confirm_pos --
+    "if you'd acted when this W confirmed, here are the planned levels" --
+    deliberately NOT at L1/L2's own historical positions like the L1/L2/
+    neckline rays above. Always drawn dotted, so they read as "planning
+    levels" distinct from the L1/L2/neckline structure lines regardless of
+    the user's L1/L2 line-style setting. label_prefix is the D-/W-/M- tag
+    used in "D/W/M together" mode, same convention as the L1/L2 labels.
+
+    Entry = L1 price (the E2 "reclaim" trigger level, the app's standard
+    default everywhere else -- E1 has no price level at all (time-only
+    trigger), E4/E5 are moving thresholds). Stop is the one formula the app
+    uses everywhere (l2_minus_atr, same as scan.py's stop_suggested).
+    Targets are whichever of X1 (fixed %) / X2 (R-multiple) / X3 (measured
+    move, same formula as scan.py's target_suggested) are requested -- X4/X5
+    are trailing lines, not a fixed price, so they can't be a ray; X6 has no
+    target at all.
+    """
+    bt_cfg = CFG["backtest"]
+    pos = active.confirm_pos
+    if pos >= len(pattern_bars_df):
+        return []
+
+    entry_ref = active.l1_price
+    atr_at_l2 = float(atr_series.iloc[active.l2_pos])
+    if atr_at_l2 != atr_at_l2:  # NaN
+        atr_at_l2 = 0.0
+    stop = active.l2_price - bt_cfg["stop_atr_mult"] * atr_at_l2
+    risk = entry_ref - stop
+
+    overlays: list[dict] = []
+    overlays.extend(_level_overlay_pair(
+        pattern_bars_df, pos, entry_ref, f"{label_prefix}Entry", ENTRY_TARGET_COLORS["Entry"], "dotted"))
+    overlays.extend(_level_overlay_pair(
+        pattern_bars_df, pos, stop, f"{label_prefix}SL", ENTRY_TARGET_COLORS["SL"], "dotted"))
+
+    if "X1" in target_variants:
+        target = entry_ref * (1.0 + bt_cfg["target_pct"] / 100.0)
+        overlays.extend(_level_overlay_pair(
+            pattern_bars_df, pos, target, f"{label_prefix}T-X1", ENTRY_TARGET_COLORS["T-X1"], "dotted"))
+    if "X2" in target_variants and risk > 0:
+        target = entry_ref + bt_cfg["target_r"] * risk
+        overlays.extend(_level_overlay_pair(
+            pattern_bars_df, pos, target, f"{label_prefix}T-X2", ENTRY_TARGET_COLORS["T-X2"], "dotted"))
+    if "X3" in target_variants:
+        target = active.neckline + (active.neckline - active.l2_price)
+        overlays.extend(_level_overlay_pair(
+            pattern_bars_df, pos, target, f"{label_prefix}T-X3", ENTRY_TARGET_COLORS["T-X3"], "dotted"))
+
+    return overlays
+
+
 def get_chart(
     con, symbol: str, tf: str = "D", bars: int = 250, chart_type: str = "Candle",
     overlays: list[str] | None = None, avwap: str = "(none)",
     show_pattern: bool = True, show_all_tf: bool = True,
     l1l2_color: str | None = None, l1l2_line_style: str | None = None,
     l1l2_line_width: int | None = None, l1l2_label_format: str = "both",
+    show_entry_target: bool = False, target_variants: list[str] | None = None,
 ) -> dict:
     isin = isin_for(con, symbol)
     if not isin:
@@ -191,7 +253,7 @@ def get_chart(
         v = metrics_src.get(col)
         return f"{v:.{digits}f}" if v is not None and v == v else "—"
 
-    active = _active_pattern(pattern_bars_df) if show_pattern else None
+    active, active_atr = (_active_pattern(pattern_bars_df) if show_pattern else (None, None))
 
     metrics = {
         "close": close_val, "adr_pct": fmt("adr_pct20"), "adx": fmt("adx14"),
@@ -206,7 +268,8 @@ def get_chart(
         for label_tf, tf_bars in per_tf_bars.items():
             if tf_bars.empty:
                 continue
-            tf_active = active if label_tf == tf else _active_pattern(tf_bars.reset_index(drop=True))
+            tf_active, tf_atr = (active, active_atr) if label_tf == tf \
+                else _active_pattern(tf_bars.reset_index(drop=True))
             if not tf_active:
                 continue
             # D/W/M-together mode uses color to tell the three timeframes'
@@ -218,6 +281,10 @@ def get_chart(
                 server_overlays.extend(_level_overlay_pair(
                     tf_bars, pos, price, f"{label_tf}-{lvl}", color, l1l2_line_style,
                     l1l2_line_width, l1l2_label_format))
+            if show_entry_target:
+                server_overlays.extend(_entry_target_overlays(
+                    tf_bars, tf_active, tf_atr, target_variants or ["X3"],
+                    label_prefix=f"{label_tf}-"))
     elif show_pattern and active:
         for label, price, pos in (("L1", active.l1_price, active.l1_pos),
                                   ("L2", active.l2_price, active.l2_pos),
@@ -225,6 +292,9 @@ def get_chart(
             server_overlays.extend(_level_overlay_pair(
                 pattern_bars_df, pos, price, label, l1l2_color, l1l2_line_style,
                 l1l2_line_width, l1l2_label_format))
+        if show_entry_target:
+            server_overlays.extend(_entry_target_overlays(
+                pattern_bars_df, active, active_atr, target_variants or ["X3"]))
 
     if avwap != "(none)" and "vwap" in bars_df.columns:
         lookback = 252 if tf == "D" else 52

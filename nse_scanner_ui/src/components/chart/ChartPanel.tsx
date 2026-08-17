@@ -19,6 +19,7 @@ const OVERLAY_OPTIONS = ["sma10", "sma20", "sma50", "sma100", "sma200"]
 const AVWAP_OPTIONS = ["(none)", "52-week low", "52-week high", "last W first low"]
 const L1L2_LINE_STYLES: L1L2LineStyle[] = ["solid", "dashed", "dotted"]
 const L1L2_LABEL_FORMATS: L1L2LabelFormat[] = ["both", "level", "price"]
+const TARGET_VARIANTS = ["X1", "X2", "X3"] as const
 const DRAWING_TOOLS: [string, string][] = [
   ["horizontal_line", "H-Line"], ["trend_line", "Trend"], ["ray", "Ray"],
   ["rectangle", "Rect"], ["fibonacci_retracement", "Fib"], ["text_note", "Text"],
@@ -40,6 +41,8 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
   const [avwap, setAvwap] = useState(AVWAP_OPTIONS[0])
   const [showPattern, setShowPattern] = useState(true)
   const [showAllTf, setShowAllTf] = useState(true)
+  const [showEntryTarget, setShowEntryTarget] = useState(false)
+  const [targetVariants, setTargetVariants] = useState<string[]>(["X3"])
   const { l1l2Color, l1l2LineStyle, l1l2LineWidth, l1l2LabelFormat, setL1L2Style } = useUiPrefs()
 
   useEffect(() => {
@@ -51,7 +54,7 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
   const chartQuery = useQuery({
     queryKey: [
       "chart", symbol, timeframe, bars, chartType, overlays, avwap, showPattern, showAllTf,
-      l1l2Color, l1l2LineStyle, l1l2LineWidth, l1l2LabelFormat,
+      l1l2Color, l1l2LineStyle, l1l2LineWidth, l1l2LabelFormat, showEntryTarget, targetVariants,
     ],
     queryFn: () =>
       chartApi.get(symbol, {
@@ -59,6 +62,7 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
         show_pattern: showPattern, show_all_tf: showAllTf,
         l1l2_color: l1l2Color, l1l2_line_style: l1l2LineStyle, l1l2_line_width: l1l2LineWidth,
         l1l2_label_format: l1l2LabelFormat,
+        show_entry_target: showEntryTarget, target_variants: targetVariants,
       }),
     enabled: !!symbol,
   })
@@ -148,6 +152,31 @@ export function ChartPanel({ initialSymbol }: { initialSymbol?: string }) {
           <Checkbox checked={showAllTf} onCheckedChange={(v) => setShowAllTf(v === true)} />
           D/W/M together
         </label>
+
+        <label className="flex items-center gap-1.5 text-xs">
+          <Checkbox
+            checked={showEntryTarget}
+            onCheckedChange={(v) => setShowEntryTarget(v === true)}
+          />
+          Mark Entry/SL/Target (dotted)
+        </label>
+        {showEntryTarget && (
+          <div className="flex flex-col gap-1">
+            <label className="text-muted-foreground text-xs">Targets</label>
+            <div className="flex gap-1">
+              {TARGET_VARIANTS.map((v) => (
+                <Button
+                  key={v} size="sm" variant={targetVariants.includes(v) ? "default" : "outline"}
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setTargetVariants((cur) =>
+                    cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v])}
+                >
+                  {v}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <Popover>
           <PopoverTrigger asChild>
