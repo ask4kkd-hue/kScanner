@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
   backtestApi,
   type RunMarginalRequest,
+  type RunRecentRequest,
   type RunSingleRequest,
   type RunSweepRequest,
 } from "@/api/backtest"
@@ -32,3 +33,6 @@ export const useRunSweep = () =>
 
 export const useRunMarginal = () =>
   useMutation({ mutationFn: (body: RunMarginalRequest) => backtestApi.marginal(body) })
+
+export const useRunRecent = () =>
+  useMutation({ mutationFn: (body: RunRecentRequest) => backtestApi.recent(body) })

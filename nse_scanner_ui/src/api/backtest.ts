@@ -28,6 +28,14 @@ export interface RunMarginalRequest {
   limit_symbols?: number | null
 }
 
+export interface RunRecentRequest {
+  preset_name: string
+  entry_variant: string
+  exit_variant: string
+  days_back: number
+  limit_symbols?: number | null
+}
+
 export interface BacktestMetrics {
   run_id: string
   trades: number
@@ -76,10 +84,42 @@ export interface MarginalRow extends BacktestMetrics {
   enough_trades?: boolean
 }
 
+export interface RecentTradeRow {
+  symbol: string
+  entry_date: string
+  entry_price: number
+  exit_date: string
+  exit_price: number
+  exit_reason: string
+  net_pnl: number
+  r_multiple: number | null
+  holding_days: number
+}
+
+export interface RecentSummary {
+  total_trades: number
+  resolved_trades: number
+  still_open: number
+  win_rate: number | null
+  target_hits: number
+  stop_hits: number
+  time_stop_exits: number
+  realized_pnl: number
+  unrealized_pnl: number
+}
+
+export interface RecentReport {
+  run_id: string
+  days_back: number
+  trades: RecentTradeRow[]
+  summary: RecentSummary
+}
+
 export const backtestApi = {
   config: () => api.get<BacktestConfig>("/api/backtest/config"),
   run: (body: RunSingleRequest) => api.post<{ run_id: string }>("/api/backtest/run", body),
   getRun: (runId: string) => api.get<BacktestRun>(`/api/backtest/${encodeURIComponent(runId)}`),
   sweep: (body: RunSweepRequest) => api.post<SweepRow[]>("/api/backtest/sweep", body),
   marginal: (body: RunMarginalRequest) => api.post<MarginalRow[]>("/api/backtest/marginal", body),
+  recent: (body: RunRecentRequest) => api.post<RecentReport>("/api/backtest/recent", body),
 }

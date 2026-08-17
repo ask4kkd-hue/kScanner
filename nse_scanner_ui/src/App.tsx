@@ -13,6 +13,7 @@ import Data from "@/routes/Data"
 import NewOpportunity from "@/routes/NewOpportunity"
 import Performance from "@/routes/Performance"
 import Positions from "@/routes/Positions"
+import RecentSignals from "@/routes/RecentSignals"
 import Scan from "@/routes/Scan"
 import Watchlist from "@/routes/Watchlist"
 import { useUiPrefs } from "@/store/uiPrefs"
@@ -51,6 +52,7 @@ export default function App() {
       <Route path="/watchlist" element={<Layout><Watchlist /></Layout>} />
       <Route path="/performance" element={<Layout><Performance /></Layout>} />
       <Route path="/backtest" element={<Layout><Backtest /></Layout>} />
+      <Route path="/recent-signals" element={<Layout><RecentSignals /></Layout>} />
       <Route path="/data" element={<Layout><Data /></Layout>} />
     </Routes>
   )

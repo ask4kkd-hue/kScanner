@@ -37,7 +37,7 @@ import argparse
 import logging
 import uuid
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -53,6 +53,14 @@ log = logging.getLogger("backtest")
 BT = CFG["backtest"]
 COSTS = CFG["costs"]
 PAT = CFG["pattern"]
+
+# A pattern triggering on day 1 of a "last N days" report window can have its
+# L1 bottom formed max_separation + entry_max_wait (~90) bars earlier, plus
+# whatever warm-up the stop/target's own ATR needs. This is how far back
+# recent_signals_report() loads data so patterns near the start of the
+# window are still structurally detectable -- the report window itself
+# (days_back) is a separate, much shorter filter applied AFTER the run.
+RECENT_REPORT_LOOKBACK_DAYS = 730
 
 
 def _pyfloat(x) -> float | None:
@@ -669,6 +677,77 @@ def marginal_contribution(con, base_preset: str, candidates: List[str],
     df["trade_retention_pct"] = df["trades"] / base["trades"] * 100.0
     df["enough_trades"] = df["trades"] >= BT["min_trades_for_conclusion"]
     return df
+
+
+_RESOLVED_STOP_REASONS = {"stop_hit", "stop_hit_ambiguous"}
+_RESOLVED_TARGET_REASONS = {"target_hit", "target_hit_ambiguous"}
+
+
+def recent_signals_report(
+    con, preset_name: str, entry_variant: str, exit_variant: str,
+    days_back: int, limit_symbols: int | None = None,
+) -> dict:
+    """
+    "What actually happened to the last `days_back` days of signals" — per
+    symbol, not just an aggregate. Runs the SAME run_backtest() used
+    everywhere else over a generous fixed lookback (RECENT_REPORT_LOOKBACK_DAYS,
+    long enough that a pattern triggering on day 1 of the requested window is
+    still structurally detectable), then filters the resulting trades down to
+    entry_date >= today - days_back for display. The backtest run itself is
+    unchanged; only this reporting/filtering layer is new.
+
+    The stored backtest_metrics row for this run reflects the WHOLE lookback
+    range, not the report window, so the summary here is computed fresh over
+    the filtered subset rather than reused from compute_metrics().
+    """
+    d_to = date.today()
+    d_from = d_to - timedelta(days=RECENT_REPORT_LOOKBACK_DAYS)
+    cutoff = d_to - timedelta(days=days_back)
+
+    run_id = run_backtest(con, preset_name, entry_variant, exit_variant,
+                          date_from=d_from, date_to=d_to, sample="in",
+                          limit_symbols=limit_symbols)
+
+    trades = con.execute("""
+        SELECT symbol, entry_date, entry_price, exit_date, exit_price,
+               exit_reason, net_pnl, r_multiple, holding_days
+        FROM backtest_trades
+        WHERE run_id = ? AND entry_date >= ?
+        ORDER BY entry_date DESC
+    """, [run_id, cutoff]).df()
+
+    if trades.empty:
+        return {
+            "run_id": run_id, "days_back": days_back,
+            "trades": trades,
+            "summary": {
+                "total_trades": 0, "resolved_trades": 0, "still_open": 0,
+                "win_rate": None, "target_hits": 0, "stop_hits": 0,
+                "time_stop_exits": 0, "realized_pnl": 0.0, "unrealized_pnl": 0.0,
+            },
+        }
+
+    resolved = trades[trades["exit_reason"] != "end_of_data"]
+    still_open = trades[trades["exit_reason"] == "end_of_data"]
+    wins = resolved[resolved["net_pnl"] > 0]
+
+    summary = {
+        "total_trades": int(len(trades)),
+        "resolved_trades": int(len(resolved)),
+        "still_open": int(len(still_open)),
+        "win_rate": _pyfloat(len(wins) / len(resolved) * 100.0) if len(resolved) else None,
+        "target_hits": int(resolved["exit_reason"].isin(_RESOLVED_TARGET_REASONS).sum()),
+        "stop_hits": int(resolved["exit_reason"].isin(_RESOLVED_STOP_REASONS).sum()),
+        "time_stop_exits": int((resolved["exit_reason"] == "time_stop").sum()),
+        "realized_pnl": _pyfloat(resolved["net_pnl"].sum()),
+        "unrealized_pnl": _pyfloat(still_open["net_pnl"].sum()),
+    }
+
+    # `trades` is returned as a DataFrame, not pre-serialized -- same
+    # convention as sweep()/marginal_contribution(); the API service layer
+    # sanitizes Timestamp/numpy types at the boundary via jsonable_df(),
+    # same as every other DataFrame-returning function here.
+    return {"run_id": run_id, "days_back": days_back, "trades": trades, "summary": summary}
 
 
 def main() -> None:

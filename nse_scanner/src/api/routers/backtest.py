@@ -5,7 +5,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_cursor
-from api.schemas.backtest import RunMarginalRequest, RunSingleRequest, RunSweepRequest
+from api.schemas.backtest import (
+    RunMarginalRequest, RunRecentRequest, RunSingleRequest, RunSweepRequest,
+)
 from api.services import backtest as bt_service
 
 router = APIRouter(prefix="/backtest", tags=["backtest"])
@@ -47,3 +49,14 @@ def post_marginal(body: RunMarginalRequest, cur=Depends(get_cursor)) -> list[dic
         return bt_service.run_marginal(cur, body.entry_variant, body.exit_variant, body.limit_symbols)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Marginal contribution failed: {e}") from e
+
+
+@router.post("/recent")
+def post_recent(body: RunRecentRequest, cur=Depends(get_cursor)) -> dict:
+    try:
+        return bt_service.run_recent(
+            cur, body.preset_name, body.entry_variant, body.exit_variant,
+            body.days_back, body.limit_symbols,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Recent signals report failed: {e}") from e

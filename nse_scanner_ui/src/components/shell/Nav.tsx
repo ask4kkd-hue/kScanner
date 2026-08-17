@@ -5,6 +5,7 @@ import {
   Database,
   Eye,
   FlaskConical,
+  History,
   LayoutDashboard,
   Search,
   Sparkles,
@@ -26,6 +27,7 @@ const ITEMS = [
   { to: "/watchlist", label: "Watchlist", icon: Eye },
   { to: "/performance", label: "Performance", icon: TrendingUp },
   { to: "/backtest", label: "Backtest", icon: FlaskConical },
+  { to: "/recent-signals", label: "Recent Signals", icon: History },
   { to: "/data", label: "Data", icon: Database },
 ]
 

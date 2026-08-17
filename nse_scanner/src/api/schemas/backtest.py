@@ -24,3 +24,11 @@ class RunMarginalRequest(BaseModel):
     entry_variant: str = "E2"
     exit_variant: str = "X1"
     limit_symbols: int | None = None
+
+
+class RunRecentRequest(BaseModel):
+    preset_name: str
+    entry_variant: str = "E2"
+    exit_variant: str = "X1"
+    days_back: int = 20
+    limit_symbols: int | None = None
