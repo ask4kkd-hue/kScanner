@@ -28,7 +28,8 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from config import CFG  # noqa: E402
 from api.deps import get_master  # noqa: E402
 from api.routers import (  # noqa: E402
-    backtest, chart, data, exports, holdings, jobs, performance, refresh, scan, today, watchlist,
+    analytics, backtest, chart, data, exports, holdings, jobs, performance, refresh, scan, today,
+    watchlist,
 )
 
 log = logging.getLogger("api.main")
@@ -93,6 +94,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(analytics.router, prefix="/api")
 app.include_router(data.router, prefix="/api")
 app.include_router(today.router, prefix="/api")
 app.include_router(chart.router, prefix="/api")

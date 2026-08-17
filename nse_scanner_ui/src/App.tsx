@@ -6,6 +6,7 @@ import { ChartDrawer } from "@/components/chart/ChartDrawer"
 import { Header } from "@/components/shell/Header"
 import { HealthRail } from "@/components/shell/HealthRail"
 import { Nav } from "@/components/shell/Nav"
+import Analytics from "@/routes/Analytics"
 import Backtest from "@/routes/Backtest"
 import Chart from "@/routes/Chart"
 import Dashboard from "@/routes/Dashboard"
@@ -53,6 +54,7 @@ export default function App() {
       <Route path="/performance" element={<Layout><Performance /></Layout>} />
       <Route path="/backtest" element={<Layout><Backtest /></Layout>} />
       <Route path="/recent-signals" element={<Layout><RecentSignals /></Layout>} />
+      <Route path="/analytics" element={<Layout><Analytics /></Layout>} />
       <Route path="/data" element={<Layout><Data /></Layout>} />
     </Routes>
   )

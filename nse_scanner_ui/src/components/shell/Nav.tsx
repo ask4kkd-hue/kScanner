@@ -1,4 +1,5 @@
 import {
+  BarChart3,
   CandlestickChart,
   ChevronLeft,
   ChevronRight,
@@ -28,6 +29,7 @@ const ITEMS = [
   { to: "/performance", label: "Performance", icon: TrendingUp },
   { to: "/backtest", label: "Backtest", icon: FlaskConical },
   { to: "/recent-signals", label: "Recent Signals", icon: History },
+  { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/data", label: "Data", icon: Database },
 ]
 
