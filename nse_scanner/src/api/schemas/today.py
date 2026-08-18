@@ -37,6 +37,28 @@ class PositionRow(BaseModel):
     partial_pnl_rupees: float | None
 
 
+class ClosedPositionRow(BaseModel):
+    trade_id: int
+    symbol: str
+    preset_name: str | None
+    entry_date: date
+    entry_price: float
+    qty: int
+    exit_date: date
+    exit_price: float
+    exit_reason: str | None
+    net_pnl: float | None
+    r_multiple: float | None
+    holding_days: int | None
+    mae_pct: float | None
+    mfe_pct: float | None
+
+
+class QualityChecklistItem(BaseModel):
+    label: str
+    passed: bool
+
+
 class OpportunitySignal(BaseModel):
     symbol: str
     trigger_price: float
@@ -50,6 +72,20 @@ class OpportunitySignal(BaseModel):
     bottom_at_sma: str | None
     sma_stack: str | None
     rs_rank_pct: float | None
+    # Descriptive-only forward outcome since the signal's scan_date -- "SL hit" |
+    # "Target hit" | "Towards target" | "Open for trade", or all-None when there's
+    # no bar after scan_date yet (i.e. today's own signal).
+    outcome_status: str | None
+    outcome_date: str | None
+    pct_since_signal: float | None
+    # Evidence-calibrated quality score (see scoring.py) -- 1D only for now,
+    # all None for 1W/1M signals (no comparable backtest history to score against).
+    quality_score: int | None
+    quality_score_max: int | None
+    quality_checklist: list[QualityChecklistItem] | None
+    historical_hit_rate_pct: float | None
+    historical_sample_size: int | None
+    historical_thin: bool | None
 
 
 class OpportunityBlock(BaseModel):

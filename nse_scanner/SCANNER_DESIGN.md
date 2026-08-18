@@ -464,6 +464,8 @@ Monthly SMA200 needs ~17 years — most of your universe won't have it.
 
 **Use SMA 12 / 24 / 36 on monthly instead** (1/2/3 years). Same purpose, actually available. Gate with `bars_available`.
 
+**Actually shipped instead (§19 open decision #2 remains genuinely open — this is a workaround, not that decision resolved):** the SMA periods stayed the same (10/20/50/100/200) across all timeframes; what changed was `features.py`'s warmup-discard threshold, split per-timeframe (`warmup_discard_bars_1m`, config.yaml) since 1d/1w's 250-bar threshold needs ~20y of monthly history nothing in this dataset has (deepest history is ~195 months) — `features_1m` was permanently, structurally empty under the old single threshold, not merely sparse. Consequence: `sma100`/`sma200` still resolve to NaN for effectively every monthly row (195 months of dataset depth < 200), so `sma_stack_state()` correctly reports `"unknown"` rather than a fabricated verdict for 1M signals — switching to shorter monthly-specific SMA periods (the original plan above) would resolve that honestly instead of just working around it, and is still on the table.
+
 ---
 
 ## 8. Gap Handling (manual runs)
@@ -890,6 +892,8 @@ Order: **scanner → journal → 3 months of real data → broker integration.**
 | 14 Aug 2026 | web/vendor | Vendored `klinecharts` bundle patched: a raw `process.env.NODE_ENV` reference (a Node global, left over from an unstripped build) threw `ReferenceError: process is not defined` on module load in the browser, crashing the ENTIRE page mount — not just the chart, the whole Vue app, header and nav included | Real user-reported bug: "Chart tab showing nothing" was actually the whole page failing to render; root-caused via the browser console (`F12`), not guessed |
 | 14 Aug 2026 | §15 | Chart screen: L1/L2/neckline overlays now anchor at the actual candle's timestamp (a `priceLine` point with no timestamp defaults to the chart's left edge, x=0 — that's why markers looked like full-width lines) and extend only rightward from there; added a `simpleAnnotation` (arrow + text) at the same point so each level is actually labelled "L1"/"L2"/"D-L1" etc. on the chart, not just a colored line. Also: W-pattern detection now fetches its own ~2500-bar daily lookback (`chart.pattern_lookback_bars`), decoupled from the "Bars" display control — `max_separation`(60) + `entry_max_wait`(30) means a monthly pattern needs up to ~90 monthly bars (~7+ years of daily data) just to be structurally possible, which the display's 250-bar default could never supply, so weekly/monthly markers were silently starved of history rather than broken. "D/W/M together" now defaults to on | Real user reports, root-caused by reading the actual vendored overlay source rather than guessing at klinecharts' API |
 | 14 Aug 2026 | §15 | Refresh pipeline rewritten: `shell.py`'s Universe/Ingest/Validate/Features steps used to shell out to `python universe.py` etc. as SEPARATE processes, each calling `connect()` for its own new DuckDB connection — but DuckDB is single-writer, so that subprocess connection attempt failed outright the instant the web server (already holding the real connection) was running, i.e. always. Fixed by extracting `universe.run_universe(con, ...)` (mirroring `ingest.run_ingest`/`validate.run_validation`'s existing shape) and calling all four modules' `con`-taking functions directly against the connection already open in-process, off the event loop via the same `run.io_bound` pattern Scan/Backtest already use | Real user-reported bug from clicking Refresh; this had likely never worked end-to-end in a live run before, only verified earlier via isolated non-interactive checks that never exercised the actual button against a running server holding the connection |
+| 19 Aug 2026 | §7.1, §19 | Weekly/monthly scanning built: bulk-fetch path added to `scan.py` for `timeframe != "1d"`; `features.py` given a separate, reachable monthly warmup threshold (`warmup_discard_bars_1m`) since the shared 250-bar (1d/1w) threshold needs ~20y of monthly history nothing in this dataset has — `features_1m` was permanently empty under it, not just sparse. Full-universe 1M feature build + scan run and verified live | User asked for 1M scanning to actually work, with a small-batch trial before the full universe, mirroring how backtest.py's `--limit` already works |
+| 19 Aug 2026 | §20 (new) | `scoring.py` added: 0-3 evidence-calibrated "quality score" for fresh 1D signals (low RS rank, deep pattern, above-average volatility), thresholds computed fresh from `backtest_trades` every request. Found `rs_rank_pct` had never been computed anywhere (0/5.5M `features_1d` rows) — backfilled via `build_rs_rank()` and into `backtest_trades`' entry-time snapshot | User wanted a way to rank same-day signals against each other (motivated by 3 real losing picks); trained-classifier version deliberately deferred, roadmap recorded in §20.2-20.4 rather than built prematurely |
 
 ---
 
@@ -899,9 +903,110 @@ Order: **scanner → journal → 3 months of real data → broker integration.**
 |---|---|---|
 | 1 | Backfill start year (2010 default — earlier for monthly W-patterns?) | Open |
 | 2 | Monthly timeframe: confirm SMA 12/24/36 instead of 200 | Open |
-| 3 | Weekly/monthly feature tables (`features_1w`, `features_1m`) | **Built** — `features.py --timeframe {1w,1m,all}`, resampled from `bars_1d` via `resample.py`. `rs_rank_pct` (cross-sectional) still daily-only; weekly/monthly **scanning** (`scan.py` writing `signals_1d` rows with `timeframe != '1d'`) is a separate remaining gap — see README "Pending features" |
+| 3 | Weekly/monthly feature tables (`features_1w`, `features_1m`) | **Built** — `features.py --timeframe {1w,1m,all}`, resampled from `bars_1d` via `resample.py`. `rs_rank_pct` (cross-sectional) still daily-only. Weekly/monthly **scanning** (`scan.py` writing `signals_1d` rows with `timeframe != '1d'`) is now also **built** — bulk-fetch path added to `scan.py` for `timeframe != "1d"` (mirrors `features.py`'s bulk fetch), monthly's warmup threshold given its own, reachable value (`warmup_discard_bars_1m`, §7.1 was the blocker — 1d/1w's 250-bar threshold needs ~20y of monthly history nothing in this dataset has), full-universe 1M build run and verified live |
 | 4 | Sector concentration warning at entry | Deferred to v2 |
 | 5 | Broker execution | Deferred — see §16 |
+| 6 | Signal quality scoring — trained classifier (Option 6) | Deferred — see §20 |
+
+---
+
+## 20. Signal Quality Scoring — Probability of Reaching Target
+
+### 20.1 What's built (checklist score, live in New Opportunity)
+
+`scoring.py` computes a 0–3 "quality score" for every fresh 1D signal, from
+three factors checked empirically against `backtest_trades`' actual
+target-hit-before-stop outcomes (38k resolved trades) rather than assumed:
+
+- **Low relative strength** (`rs_rank_pct` in the bottom tercile) — counter
+  to a trend-following instinct, but this is a *reversal* pattern: a stock
+  already at the top of its RS range has less room to run once triggered.
+- **Deep pattern** (`depth_pct` in the top tercile) — a deeper W means a
+  bigger measured-move target.
+- **Above-average volatility** (`adr_pct` in the top tercile) — more room
+  to travel before whipsawing to the stop.
+
+Other candidate factors were checked and rejected on the same evidence:
+`bottom_at_sma`/`sma_stack` spread only 2-3 points (too weak to score on);
+`deliv_pct` is <1% populated in `backtest_trades` (too sparse to trust).
+
+Thresholds are terciles of the *live* `backtest_trades` distribution,
+recomputed on every request (cheap — tens of thousands of rows, not
+millions) rather than frozen as config constants, so calibration keeps
+improving as backtest history grows rather than silently going stale.
+Score buckets ladder cleanly: roughly 76% / 78% / 83% / 85% target-hit
+rate by score, each bucket backed by thousands of trades.
+
+**1D only.** `backtest.py` has no `timeframe` parameter, so there is no
+comparable historical ground truth to calibrate 1W/1M signals against yet
+— see §20.4.
+
+**Related fix found along the way:** `rs_rank_pct` had never actually been
+computed anywhere in this database — 0 of 5.5M `features_1d` rows
+populated, live signals included, until this work ran `build_rs_rank()` to
+backfill it (and backfilled `backtest_trades`' own entry-time snapshot of
+it from the now-populated table). `use_relative_strength` was `false`
+throughout, so this hadn't been silently dropping signals — but the
+column, and any future use of the filter, had been dead weight. See §18.
+
+### 20.2 Deferred: trained classifier (Option 6)
+
+Not built. The checklist above is deliberately simple and explainable; a
+classifier is the natural next step if it proves the checklist isn't
+differentiating enough, but building one prematurely risks exactly the
+kind of overconfident, uncalibrated "probability" this project's
+descriptive-only philosophy (advisor.py, §15.0) exists to avoid.
+
+### 20.3 The intended path
+
+1. **Widen the feature set.** Beyond the three checklist factors: the rest
+   of `features_1d` (RSI, ADX, SMA slopes/compression, turnover), one-hot
+   encoded `bottom_at_sma`/`sma_stack`. Worth fixing `deliv_pct`'s
+   population rate first (<1% currently) — a model may be able to use it
+   even where the manual checklist couldn't trust it.
+2. **Walk-forward validation, non-negotiable.** Trades overlap in time, so
+   a random train/test split leaks the future into training. Use
+   expanding-window splits keyed on `signal_date` (train through year N,
+   test N+1) — this is what actually proves the model works, not in-sample
+   accuracy.
+3. **Start with logistic regression** (scikit-learn — chosen over
+   statsmodels, hand-rolled numpy/scipy, or jumping straight to gradient
+   boosting: it's the only option covering the whole path below — simple
+   model, calibration tooling, walk-forward splitters, and a clean upgrade
+   route to GBM — without adding a second library partway through).
+   Interpretable coefficients extend the checklist naturally ("each
+   10-point RS drop multiplies odds by X"); the data size (order 10,000s)
+   doesn't need a fancier model yet. LightGBM/XGBoost/CatBoost are the
+   upgrade path if logistic regression plateaus — CatBoost specifically
+   handles `bottom_at_sma`/`sma_stack`-style categoricals natively, no
+   manual one-hot encoding.
+4. **Calibration is the deliverable, not accuracy.** Verify a predicted 70%
+   actually happens ~70% of the time (reliability diagram / Brier score,
+   both in scikit-learn). This is where naive ML-for-trading efforts
+   usually go wrong, and it's the part most aligned with this project's
+   descriptive-only rule — a checked probability is closer to that spirit
+   than a raw model score.
+5. **Audit for leakage.** Every feature must be genuinely knowable at the
+   signal bar — `backtest_trades`' existing snapshot-at-entry discipline
+   (§14.4) is the right pattern to keep.
+6. **Version and retrain deliberately.** Track a `model_version` per scored
+   signal, same spirit as `feature_version`/`config_hash` elsewhere in this
+   schema (§4.6). Decide a retraining cadence up front.
+7. **Shadow-mode before trusting it.** Run the classifier alongside the
+   existing checklist for a stretch of live signals before switching — it
+   needs to demonstrably beat the checklist's ~9-point spread to justify
+   the added opacity. At ~10-14 fresh 1D signals/day, getting enough
+   *resolved* signals to compare honestly is realistically weeks to a
+   couple months of calendar time — not something more engineering effort
+   shortens.
+
+### 20.4 Prerequisite: 1W/1M needs its own backtest first
+
+Extending either the checklist or a classifier to 1W/1M requires adding
+timeframe support to `backtest.py` (mirroring `scan.py`'s
+`load_symbol_frame_tf`/bulk-fetch path, §7) and running fresh backtests
+for those timeframes — there is currently no historical ground truth for
+weekly/monthly signals to calibrate against, full stop.
 
 ---
 

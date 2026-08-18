@@ -245,3 +245,50 @@ Two things are deliberately **never hard-coded in Python**:
 - **Scan-screen filter chips** (`filter_chips:` block) — each chip is `{id, label, expr}`, optionally with a numeric slider (`default`/`min`/`max`/`step`). Adding a chip is a YAML edit, never a code change.
 
 Thresholds generally live here rather than in the database specifically so that changing a threshold never triggers a feature rebuild (`docs/CLAUDE.md`'s rule: "Thresholds live in presets, never in the database").
+
+---
+
+## 13. Relative-strength rank & signal quality score
+
+### RS rank (`build_rs_rank`, `features.py:520`, pass 2)
+
+Cross-sectional percentile, not an absolute number — measures *medium-term relative momentum against the rest of the universe on the same day*, not whether the stock itself is up or down.
+
+```python
+ret_55d       # each symbol's own trailing 55-trading-day return (pass 1)
+rs_rank_pct   = rows.groupby("date")["ret_55d"].rank(pct=True) * 100.0   # per-date percentile
+rs_vs_bench   = ret_55d − bench_ret_pct                                  # vs CFG["universe"]["benchmark"], informational only
+```
+
+`rs_rank_pct = 92` on a given date means this symbol's 55-day return beat 92% of the universe *that day* — it moves even when the stock's own price doesn't, because the rest of the universe shifted around it. Daily-only by design: `ret_55d`'s lookback and the benchmark series are both daily-bar-tuned, so `features_1w`/`features_1m` deliberately leave `rs_rank_pct`/`rs_vs_bench` `NULL` rather than mixing timeframes (§4). Must run after pass 1 completes for the *entire* universe — ranking against a partial universe produces numbers that look right and are not.
+
+Found empty end-to-end (0 of 5.5M `features_1d` rows populated, live signals included) until this pass was actually run for the first time — the ranking step existed and was correct, it had simply never been invoked.
+
+### Signal quality score (`scoring.py`, 1D only)
+
+A 0-3 checklist for fresh signals, **evidence-selected and evidence-calibrated** — every factor and threshold comes from checking `backtest_trades`' actual target-hit-vs-stop-hit outcomes (38k resolved trades: `exit_reason IN ('target_hit','target_hit_ambiguous','stop_hit','stop_hit_ambiguous')`), not assumed.
+
+**Factors** (`scoring.SCORE_FACTORS`), one point each:
+
+| Factor | Direction | Why |
+|---|---|---|
+| `rs_rank_pct` | LOW (bottom tercile) | Counter-intuitive but real in the data: target-hit rate falls monotonically from 81% (bottom RS quintile) to 77% (top quintile) across 34k trades. This is a *reversal* pattern — a stock already leading the market is more likely already extended, with less room left to run once it triggers, than a laggard turning around. |
+| `depth_pct` | HIGH (top tercile) | The measured-move target is derived from depth (§6) — a deeper W sets a bigger target with more room before it's "done." 76.0% → 83.1% across quartiles. |
+| `adr_pct` | HIGH (top tercile) | More volatile names cover ground faster, more likely to reach a distant target before a tighter stop clips them. 76.3% → 82.9% across quartiles. |
+
+Checked and **rejected**: `bottom_at_sma`/`sma_stack` (2-3 point spread only — too weak to score on), `deliv_pct` (<1% populated in `backtest_trades` — too sparse to trust).
+
+**Calibration** (`scoring.calibrate`) recomputes thresholds as *live terciles* of `backtest_trades` on every request — never frozen as config constants, so it keeps improving as backtest history grows:
+
+```python
+thresholds = {
+    "rs_rank_pct": resolved["rs_rank_pct"].quantile(1/3),   # bottom-third cutoff
+    "depth_pct":   resolved["depth_pct"].quantile(2/3),     # top-third cutoff
+    "adr_pct":     resolved["adr_pct"].quantile(2/3),       # top-third cutoff
+}
+score = sum(factor clears its threshold for factor in the three above)   # 0-3
+```
+
+The combined score ladders more cleanly than any single factor: **75.6% / 78.4% / 83.0% / 85.1%** target-hit rate for score 0/1/2/3, backed by 11,935 / 12,396 / 7,951 / 2,067 trades respectively. That historical rate is what's shown next to the score in New Opportunity (`api/services/today.py:_score_fields`) — it describes *signals that scored the same historically*, never a forecast for the specific signal in front of you. A 3/3 score is not a guarantee; a ~15-25% miss rate at any score is the expected, honest outcome, not a failure of the checklist.
+
+**1D only**: `backtest.py` has no `timeframe` parameter, so there's no comparable ground truth to calibrate 1W/1M signals against yet (SCANNER_DESIGN.md §20.4). Deferred: a trained classifier (walk-forward validated, calibration-checked) as a richer successor once the checklist proves insufficient — roadmap in SCANNER_DESIGN.md §20.2-20.3, deliberately not built yet.

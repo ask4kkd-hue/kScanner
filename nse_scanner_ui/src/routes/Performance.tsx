@@ -7,6 +7,7 @@ import { EquityDrawdownChart } from "@/components/ui/equity-drawdown-chart"
 import { PageTitle } from "@/components/ui/section"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ClosedPositionsTable } from "@/components/trades/ClosedPositionsTable"
 import type { AttributionRow } from "@/api/performance"
 import {
   useAdherence, useAttribution, useCompare, useEquityCurve, usePresetsTraded,
@@ -84,6 +85,7 @@ export default function Performance() {
       <Tabs defaultValue="overview">
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="history">Trade History</TabsTrigger>
           <TabsTrigger value="attribution">Attribution</TabsTrigger>
           <TabsTrigger value="adherence">Adherence</TabsTrigger>
           <TabsTrigger value="tags">Tags</TabsTrigger>
@@ -120,6 +122,10 @@ export default function Performance() {
               <EquityDrawdownChart data={equity.data ?? []} />
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <ClosedPositionsTable />
         </TabsContent>
 
         <TabsContent value="attribution" className="flex flex-col gap-4">

@@ -93,6 +93,69 @@ def load_symbol_frame_tf(con, isin: str, date_to: date, timeframe: str = "1d",
     return bars_df.merge(feats, on="date", how="left").sort_values("date").reset_index(drop=True)
 
 
+def _bulk_fetch_tf_frames(con, isins: list[str], as_of: date, timeframe: str) -> dict:
+    """
+    Bulk equivalent of load_symbol_frame_tf's "1w"/"1m" branch for the WHOLE
+    universe, in two queries total instead of two queries PER SYMBOL -- same
+    bulk-over-per-symbol fix features.py's _bulk_fetch_all_bars already
+    applied to feature-building (there: ~2000 symbols x 1 query -> 1 query),
+    now applied here to scanning (there: ~2000 symbols x 2 queries -> 2
+    queries), which is what made a full-universe 1w/1m scan impractically
+    slow. Only used for timeframe != "1d" -- the daily path keeps its own
+    per-symbol windowed fetch in load_symbol_frame_tf, unchanged, since its
+    "never re-touch an already-stored date" reasoning is specific to that
+    narrow window.
+
+    Returns {isin: DataFrame} with the SAME shape load_symbol_frame_tf
+    returns per symbol (resampled bars merged with that timeframe's
+    features), so the per-symbol scan loop below doesn't need two code
+    paths for how a frame is built, only for how it's fetched.
+    """
+    date_from = as_of - timedelta(days=int(CFG["chart"]["pattern_lookback_bars"] * 1.6))
+
+    con.register("tmp_scan_isins", pd.DataFrame({"isin": isins}))
+    daily = con.execute("""
+        SELECT b.isin, b.date, b.open, b.high, b.low, b.close, b.volume, b.vwap
+        FROM bars_1d b JOIN tmp_scan_isins t ON t.isin = b.isin
+        WHERE b.date BETWEEN ? AND ?
+        ORDER BY b.isin, b.date
+    """, [date_from, as_of]).df()
+    feats = con.execute(f"""
+        SELECT f.isin, f.date, f.sma10, f.sma20, f.sma50, f.sma100, f.sma200,
+               f.sma50_slope, f.sma200_slope, f.sma_stack, f.sma_compression,
+               f.atr14, f.adr_pct20, f.adx14, f.rsi14,
+               f.turnover_sma20, f.deliv_pct_sma20, f.rvol,
+               f.dist_sma200_pct, f.rs_rank_pct, f.bars_available
+        FROM {FEATURES_TABLE[timeframe]} f JOIN tmp_scan_isins t ON t.isin = f.isin
+        WHERE f.date BETWEEN ? AND ?
+    """, [date_from, as_of]).df()
+    con.unregister("tmp_scan_isins")
+
+    daily_by_isin = {isin: g.drop(columns="isin") for isin, g in daily.groupby("isin", sort=False)}
+    feats_by_isin = {isin: g.drop(columns="isin") for isin, g in feats.groupby("isin", sort=False)}
+    # A symbol with zero rows in the whole bulk features fetch never gets a
+    # groupby entry -- fall back to an empty frame with the FULL feature
+    # column set (not just "date"), so the merge below still produces every
+    # column load_symbol_frame_tf's per-symbol query would (NaN-filled,
+    # same as a genuinely empty per-symbol SQL result preserves its
+    # SELECT-clause columns).
+    empty_feats = pd.DataFrame(columns=[c for c in feats.columns if c != "isin"])
+
+    out = {}
+    for isin in isins:
+        d = daily_by_isin.get(isin)
+        if d is None or d.empty:
+            out[isin] = d if d is not None else pd.DataFrame()
+            continue
+        bars_df = rs.to_weekly(d) if timeframe == "1w" else rs.to_monthly(d)
+        if bars_df.empty:
+            out[isin] = bars_df
+            continue
+        f = feats_by_isin.get(isin, empty_feats)
+        out[isin] = bars_df.merge(f, on="date", how="left").sort_values("date").reset_index(drop=True)
+    return out
+
+
 def current_as_of(con) -> date:
     """The same date scan()'s own `as_of = as_of or MAX(bars_1d.date)` resolves to,
     exposed so callers (the scan-result cache) can key on it without duplicating
@@ -128,7 +191,8 @@ def regime_state(con, as_of: date) -> str:
 
 def scan(con, preset_name: str, as_of: date | None = None,
          lookback_bars: int = 400, ignore_stale: bool = False,
-         apply_preset: bool = True, timeframe: str = "1d") -> pd.DataFrame:
+         apply_preset: bool = True, timeframe: str = "1d",
+         limit_symbols: int | None = None) -> pd.DataFrame:
     """
     Find W-patterns whose entry trigger fires on (or just before) as_of.
 
@@ -145,10 +209,15 @@ def scan(con, preset_name: str, as_of: date | None = None,
 
     timeframe="1d" (default) is unchanged behaviour end to end. "1w"/"1m"
     run the SAME pattern code and the SAME preset conditions against
-    resampled weekly/monthly bars (load_symbol_frame_tf) instead of daily
+    resampled weekly/monthly bars (load_symbol_frame_tf, or in bulk via
+    _bulk_fetch_tf_frames for the whole universe at once) instead of daily
     ones — universe membership, staleness, and regime stay daily-derived,
     since weekly/monthly bars are themselves derived from bars_1d and a
     stale daily feed makes every timeframe stale.
+
+    limit_symbols: cap the universe to a quick trial subset (same purpose
+    as backtest.py's --limit) -- useful for trying a 1m scan against, say,
+    50 symbols before committing to the full universe.
     """
     if CFG["validation"]["abort_scan_if_stale"] and not ignore_stale:
         stale, latest_bar, latest_cal = data_is_stale(con)
@@ -175,13 +244,21 @@ def scan(con, preset_name: str, as_of: date | None = None,
         return pd.DataFrame()
 
     uni = active_universe(con, as_of)
+    if limit_symbols:
+        uni = uni.head(limit_symbols)
     log.info("Universe after liquidity/series/surveillance filters: %d", len(uni))
+
+    bulk_frames = (_bulk_fetch_tf_frames(con, uni["isin"].tolist(), as_of, timeframe)
+                  if timeframe != "1d" else None)
 
     rows = []
 
     for _, s in uni.iterrows():
-        df = load_symbol_frame_tf(con, s["isin"], as_of, timeframe,
-                                  lookback_days=int(lookback_bars * 1.6))
+        if bulk_frames is not None:
+            df = bulk_frames.get(s["isin"], pd.DataFrame())
+        else:
+            df = load_symbol_frame_tf(con, s["isin"], as_of, timeframe,
+                                      lookback_days=int(lookback_bars * 1.6))
         if len(df) < MIN_BARS[timeframe]:
             continue
 
@@ -307,6 +384,7 @@ def main() -> None:
     ap.add_argument("--timeframe", default="1d", choices=["1d", "1w", "1m"])
     ap.add_argument("--export", action="store_true", help="write an xlsx to exports/")
     ap.add_argument("--ignore-stale", action="store_true")
+    ap.add_argument("--limit", type=int, help="limit symbols (for a quick trial)")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO,
@@ -314,7 +392,8 @@ def main() -> None:
     con = connect()
     init_schema(con)
 
-    df = scan(con, args.preset, ignore_stale=args.ignore_stale, timeframe=args.timeframe)
+    df = scan(con, args.preset, ignore_stale=args.ignore_stale, timeframe=args.timeframe,
+              limit_symbols=args.limit)
     store_signals(con, df)
 
     if df.empty:

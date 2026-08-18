@@ -288,6 +288,19 @@ def log_missed(con, signal_id: str, scan_date: date, symbol: str,
 # ANALYTICS
 # =====================================================================
 
+def list_closed_trades(con) -> pd.DataFrame:
+    """Row-level closed trades, newest exit first -- same table/filter as
+    summary() etc. below, just ungrouped. Those functions answer "how am I
+    doing overall"; this answers "what actually happened, trade by trade",
+    which nothing else exposes (Positions only ever lists status='open')."""
+    return con.execute("""
+        SELECT trade_id, symbol, preset_name, entry_date, entry_price, qty,
+               exit_date, exit_price, exit_reason, net_pnl, r_multiple,
+               holding_days, mae_pct, mfe_pct
+        FROM trades WHERE status = 'closed' ORDER BY exit_date DESC
+    """).df()
+
+
 def summary(con) -> dict:
     t = con.execute("SELECT * FROM trades WHERE status = 'closed'").df()
     if t.empty:

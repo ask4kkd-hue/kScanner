@@ -26,6 +26,11 @@ export interface PositionRow {
   partial_pnl_rupees: number | null
 }
 
+export interface QualityChecklistItem {
+  label: string
+  passed: boolean
+}
+
 export interface OpportunitySignal {
   symbol: string
   trigger_price: number
@@ -39,6 +44,19 @@ export interface OpportunitySignal {
   bottom_at_sma: string | null
   sma_stack: string | null
   rs_rank_pct: number | null
+  // Descriptive-only forward outcome since the signal's scan_date -- null for
+  // today's own signal (no bar after it yet); populated once you browse T-1+.
+  outcome_status: "SL hit" | "Target hit" | "Towards target" | "Open for trade" | null
+  outcome_date: string | null
+  pct_since_signal: number | null
+  // Evidence-calibrated quality score (scoring.py) -- 1D only, null for 1W/1M
+  // (no comparable backtest history to calibrate against yet).
+  quality_score: number | null
+  quality_score_max: number | null
+  quality_checklist: QualityChecklistItem[] | null
+  historical_hit_rate_pct: number | null
+  historical_sample_size: number | null
+  historical_thin: boolean | null
 }
 
 export interface OpportunityBlock {
@@ -82,4 +100,10 @@ export interface TodayResponse {
 
 export const todayApi = {
   get: () => api.get<TodayResponse>("/api/today"),
+  opportunities: (asOfDate?: string) => {
+    const params = asOfDate ? `?as_of_date=${asOfDate}` : ""
+    return api.get<OpportunityBlock[]>(`/api/today/opportunities${params}`)
+  },
+  opportunityDates: (timeframe: string) =>
+    api.get<{ dates: string[] }>(`/api/today/opportunity-dates?timeframe=${timeframe}`),
 }

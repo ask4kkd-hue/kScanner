@@ -21,6 +21,23 @@ export interface PositionRow {
   partial_pnl_rupees: number | null
 }
 
+export interface ClosedPositionRow {
+  trade_id: number
+  symbol: string
+  preset_name: string | null
+  entry_date: string
+  entry_price: number
+  qty: number
+  exit_date: string
+  exit_price: number
+  exit_reason: string | null
+  net_pnl: number | null
+  r_multiple: number | null
+  holding_days: number | null
+  mae_pct: number | null
+  mfe_pct: number | null
+}
+
 export interface TradeOpenRequest {
   symbol: string
   entry_date: string
@@ -60,6 +77,7 @@ export interface TradeUpdateRequest {
 
 export const holdingsApi = {
   openPositions: () => api.get<PositionRow[]>("/api/trades/open"),
+  closedPositions: () => api.get<ClosedPositionRow[]>("/api/trades/closed"),
   open: (body: TradeOpenRequest) => api.post<{ trade_id: number }>("/api/trades", body),
   close: (tradeId: number, body: TradeCloseRequest) =>
     api.post<{ trade_id: number; net_pnl: number }>(`/api/trades/${tradeId}/close`, body),

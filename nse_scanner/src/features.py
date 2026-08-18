@@ -51,9 +51,10 @@ P = CFG["features"]["params"]
 # value). warmup_discard_bars stays a bar-count margin, not a calendar one,
 # so it applies unchanged in each timeframe's own bar units: a weekly ADX
 # needs ~250 WEEKLY bars (~5 years) to clear the same settling margin a
-# daily ADX needs in daily bars. Monthly (~250 months = ~20 years) will
-# stay sparse or empty for most symbols until enough history accumulates —
-# that is an honest consequence of the same rule, not a bug.
+# daily ADX needs in daily bars. Monthly is the exception: 250 MONTHLY bars
+# needs ~20 years of history, which nothing in this dataset has yet (see
+# warmup_discard_bars_1m's own comment in config.yaml) — so monthly gets
+# its own, separately-configured threshold instead of inheriting this one.
 FEATURES_TABLE = {"1d": "features_1d", "1w": "features_1w", "1m": "features_1m"}
 
 
@@ -380,6 +381,30 @@ def _fetch_symbol_bars(con, isin: str, table: str, timeframe: str, full: bool,
     return bars, offset, since
 
 
+def _bulk_fetch_all_bars(con, isins: List[str]) -> Dict[str, pd.DataFrame]:
+    """
+    One query for every symbol's full bars_1d history, split via groupby --
+    same fix as backtest.py's _prepare_universe(): N per-symbol queries
+    (thousands of them across a full rebuild) collapsed to 1, split with
+    groupby rather than a per-symbol boolean filter (which would silently
+    reintroduce an O(n_symbols * n_rows) scan). Only used by the "always
+    fetch complete history" paths (full rebuild, --from-date, 1w/1m) --
+    the daily incremental path keeps its own narrow per-symbol windowed
+    fetch in _fetch_symbol_bars, unchanged.
+    """
+    con.register("tmp_feat_isins", pd.DataFrame({"isin": isins}))
+    bulk = con.execute("""
+        SELECT b.isin, b.date, b.open, b.high, b.low, b.close, b.volume, b.vwap,
+               b.deliv_pct, b.no_of_trades
+        FROM bars_1d b
+        JOIN tmp_feat_isins t ON t.isin = b.isin
+        ORDER BY b.isin, b.date
+    """).df()
+    con.unregister("tmp_feat_isins")
+    return {isin: g.drop(columns="isin").reset_index(drop=True)
+           for isin, g in bulk.groupby("isin", sort=False)}
+
+
 def build_features(con, isins: List[str] | None = None,
                    rebuild_from: date | None = None,
                    full: bool = False, timeframe: str = "1d") -> int:
@@ -401,7 +426,10 @@ def build_features(con, isins: List[str] | None = None,
     enabled = CFG["features"]["enabled"]
     order = resolve_enabled(enabled)
     fv = feature_version(enabled)
-    warm = P["warmup_discard_bars"]
+    # Monthly gets its own, much lower warmup threshold -- see this module's
+    # top-of-file comment and warmup_discard_bars_1m's comment in config.yaml
+    # for why 1d/1w's 250-bar threshold would leave features_1m permanently empty.
+    warm = P["warmup_discard_bars_1m"] if timeframe == "1m" else P["warmup_discard_bars"]
     pass1 = [n for n in order if REGISTRY[n].get("pass", 1) == 1]
     context_bars = warm + max((REGISTRY[n]["min_bars"] for n in pass1), default=0)
 
@@ -416,10 +444,24 @@ def build_features(con, isins: List[str] | None = None,
     log.info("Computing %d features for %d symbols, timeframe=%s (version %s)",
              len(order), len(isins), timeframe, fv)
 
+    # The "always fetch complete history" paths (full rebuild, --from-date,
+    # any 1w/1m run -- see _fetch_symbol_bars) load every symbol in ONE bulk
+    # query instead of one query each; the daily incremental path keeps its
+    # own narrow per-symbol windowed fetch, untouched, since its correctness
+    # reasoning (never re-touch an already-stored date) is specific to that
+    # narrow window and isn't something a bulk full-history load needs.
+    needs_full_fetch = full or rebuild_from is not None or timeframe != "1d"
+    bulk_bars = _bulk_fetch_all_bars(con, isins) if needs_full_fetch else None
+
+    all_feats: list[pd.DataFrame] = []
     total = 0
     for i, isin in enumerate(isins, 1):
-        bars, bars_offset, since = _fetch_symbol_bars(
-            con, isin, table, timeframe, full, rebuild_from, context_bars)
+        if bulk_bars is not None:
+            bars = bulk_bars.get(isin, pd.DataFrame())
+            bars_offset, since = 0, None
+        else:
+            bars, bars_offset, since = _fetch_symbol_bars(
+                con, isin, table, timeframe, full, rebuild_from, context_bars)
         bars = _resample_for(bars, timeframe)
         if len(bars) < 30:
             continue
@@ -442,11 +484,16 @@ def build_features(con, isins: List[str] | None = None,
         if feats.empty:
             continue
 
-        _upsert_features(con, feats, table)
+        all_feats.append(feats)
         total += len(feats)
 
-        if i % 100 == 0:
+        if i % 500 == 0:
             log.info("  %d/%d symbols, %d rows", i, len(isins), total)
+
+    # One bulk upsert for every symbol's rows instead of one per symbol --
+    # same reasoning as the bulk read above, on the write side.
+    if all_feats:
+        _upsert_features(con, pd.concat(all_feats, ignore_index=True), table)
 
     log.info("Pass 1 complete (%s): %d rows", table, total)
     return total

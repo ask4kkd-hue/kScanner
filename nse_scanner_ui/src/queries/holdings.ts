@@ -11,6 +11,9 @@ import {
 export const useOpenPositions = () =>
   useQuery({ queryKey: ["trades", "open"], queryFn: holdingsApi.openPositions })
 
+export const useClosedPositions = () =>
+  useQuery({ queryKey: ["trades", "closed"], queryFn: holdingsApi.closedPositions })
+
 export const useOpenTrade = () => {
   const queryClient = useQueryClient()
   return useMutation({
@@ -29,6 +32,7 @@ export const useCloseTrade = () => {
       holdingsApi.close(tradeId, body),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trades", "open"] })
+      queryClient.invalidateQueries({ queryKey: ["trades", "closed"] })
       queryClient.invalidateQueries({ queryKey: ["today"] })
     },
   })

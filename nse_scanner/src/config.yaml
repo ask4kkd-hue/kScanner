@@ -89,7 +89,12 @@ features:
     bb_mult: 2.0
     vol_length: 20
     rs_lookback: 55
-    warmup_discard_bars: 250       # first N bars per symbol are NOT trustworthy
+    warmup_discard_bars: 250       # first N bars per symbol are NOT trustworthy (1d/1w)
+    # 250 MONTHLY bars needs ~20y of history; the deepest history any symbol in
+    # this dataset has is ~195 months (~16y, backfill_start below), so features_1m
+    # would stay permanently empty under the 1d/1w threshold above -- not a looser
+    # rule, just a threshold that's actually reachable at monthly granularity.
+    warmup_discard_bars_1m: 60
 
 # -------------------------------------------------------------------
 # ANCHORED VWAP
@@ -135,6 +140,8 @@ filters:
 startup_warm_scans:
   - {preset: w_naked, timeframe: "1d"}      # the backtest control, zero conditions
   - {preset: w_baseline, timeframe: "1d"}   # the realistic "what's tradeable" scan
+  - {preset: w_baseline, timeframe: "1w"}   # same, weekly -- publish mechanism already
+  - {preset: w_baseline, timeframe: "1m"}   # supports any timeframe, just never listed here
 
 # -------------------------------------------------------------------
 # SCAN PRESETS — add combinations here, never in Python

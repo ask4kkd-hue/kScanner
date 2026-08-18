@@ -88,3 +88,15 @@ def list_open_positions(con) -> list[dict]:
 
     rows.sort(key=lambda r: _STATUS_ORDER.get(r["status"], 3))
     return rows
+
+
+def list_closed_positions(con) -> list[dict]:
+    """Row-level closed trades for the Positions/Performance "Closed" views --
+    thin wrapper matching list_open_positions' shape, backed by
+    journal.list_closed_trades (the same trades/status='closed' source
+    summary() etc. already aggregate, just ungrouped here)."""
+    df = jr.list_closed_trades(con)
+    # NaN (e.g. a NULL r_multiple/mae_pct, or an int column upcast to float64
+    # by an unrelated NULL elsewhere) isn't valid JSON -- None is, and this is
+    # the same NaN-vs-None trap today.py's service already works around.
+    return df.astype(object).where(df.notna(), None).to_dict(orient="records")

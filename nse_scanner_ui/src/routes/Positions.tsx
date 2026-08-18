@@ -7,6 +7,8 @@ import { DataTable } from "@/components/ui/data-table"
 import { PageTitle } from "@/components/ui/section"
 import { StatusBadge } from "@/components/ui/status-badge"
 import { SymbolLink } from "@/components/ui/symbol-link"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { ClosedPositionsTable } from "@/components/trades/ClosedPositionsTable"
 import { EntryDialog } from "@/components/trades/EntryDialog"
 import { CloseDialog } from "@/components/trades/CloseDialog"
 import { EditDialog } from "@/components/trades/EditDialog"
@@ -143,18 +145,31 @@ export default function Positions() {
 
       <Button onClick={() => setEntryOpen(true)} className="w-fit">+ New position</Button>
 
-      {positions && positions.length === 0 && <p className="text-sm">No open positions.</p>}
+      <Tabs defaultValue="open">
+        <TabsList>
+          <TabsTrigger value="open">Open</TabsTrigger>
+          <TabsTrigger value="closed">Closed</TabsTrigger>
+        </TabsList>
 
-      {positions && positions.length > 0 && (
-        <>
-          <div className="flex gap-6 text-sm">
-            <span className="font-semibold">Total open P&amp;L: {inr(totalPnl)}</span>
-            <span className="font-semibold">At risk: {atRisk} of {positions.length}</span>
-          </div>
+        <TabsContent value="open" className="flex flex-col gap-3">
+          {positions && positions.length === 0 && <p className="text-sm">No open positions.</p>}
 
-          <DataTable columns={columns} data={positions} emptyMessage="No open positions." />
-        </>
-      )}
+          {positions && positions.length > 0 && (
+            <>
+              <div className="flex gap-6 text-sm">
+                <span className="font-semibold">Total open P&amp;L: {inr(totalPnl)}</span>
+                <span className="font-semibold">At risk: {atRisk} of {positions.length}</span>
+              </div>
+
+              <DataTable columns={columns} data={positions} emptyMessage="No open positions." />
+            </>
+          )}
+        </TabsContent>
+
+        <TabsContent value="closed">
+          <ClosedPositionsTable />
+        </TabsContent>
+      </Tabs>
 
       <EntryDialog open={entryOpen} onOpenChange={setEntryOpen} />
       <EditDialog open={!!editTarget} onOpenChange={(open) => !open && setEditTarget(null)} position={editTarget} />

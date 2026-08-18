@@ -14,9 +14,39 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { exportsApi } from "@/api/exports"
 import { jobsApi } from "@/api/jobs"
+import { useIngestLog } from "@/queries/data"
+import { useToday } from "@/queries/today"
 import { THEME_LABELS, type Theme, useUiPrefs } from "@/store/uiPrefs"
 
 type RefreshEvent = { step: string | null; status: "running" | "done" | "error" | "complete"; detail?: string }
+
+function timeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime()
+  const mins = Math.floor(diffMs / 60_000)
+  if (mins < 1) return "just now"
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+function RefreshStatus() {
+  const { data: log } = useIngestLog(1)
+  const { data: today } = useToday()
+  const last = log?.[0]
+
+  if (!last?.run_ts) return null
+
+  const stale = today?.status.stale ?? false
+  return (
+    <span
+      className={`text-xs ${stale ? "text-destructive" : "text-muted-foreground"}`}
+      title={`Last ingest run: ${last.run_ts}${stale ? " — data is stale" : ""}`}
+    >
+      Data refreshed {timeAgo(last.run_ts)}
+    </span>
+  )
+}
 
 export function Header() {
   const queryClient = useQueryClient()
@@ -26,6 +56,7 @@ export function Header() {
 
   const refetchHealth = () => {
     queryClient.invalidateQueries({ queryKey: ["data", "table-counts"] })
+    queryClient.invalidateQueries({ queryKey: ["data", "ingest-log"] })
     queryClient.invalidateQueries({ queryKey: ["today"] })
   }
 
@@ -95,7 +126,10 @@ export function Header() {
 
   return (
     <header className="flex h-12 items-center justify-between border-b border-border bg-card px-3">
-      <span className="text-sm font-bold tracking-wide">kSCANNER</span>
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-bold tracking-wide">kSCANNER</span>
+        <RefreshStatus />
+      </div>
       <div className="flex items-center gap-1">
         <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
           <SelectTrigger className="h-8 w-[168px] text-xs" title="Theme">

@@ -9,6 +9,12 @@ const VARIANT = {
   PARTIAL_PROFIT: "default",
   PARTIAL_LOSS: "warning",
   CLOSED: "outline",
+  // New Opportunity's descriptive forward-outcome status (today.py's
+  // _signal_outcomes) -- reports what already happened, not a forecast.
+  "SL hit": "destructive",
+  "Target hit": "default",
+  "Towards target": "warning",
+  "Open for trade": "outline",
 } as const
 
 const LABEL: Record<string, string> = {

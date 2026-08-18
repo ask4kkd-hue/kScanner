@@ -6,11 +6,11 @@ import journal as jr
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_cursor
-from api.schemas.today import PositionRow
+from api.schemas.today import ClosedPositionRow, PositionRow
 from api.schemas.trades import (
     TradeCloseRequest, TradeOpenRequest, TradePartialCloseRequest, TradeUpdateRequest,
 )
-from api.services.holdings import list_open_positions
+from api.services.holdings import list_closed_positions, list_open_positions
 
 router = APIRouter(prefix="/trades", tags=["holdings"])
 
@@ -19,6 +19,11 @@ router = APIRouter(prefix="/trades", tags=["holdings"])
 def get_open_positions(cur=Depends(get_cursor)) -> list[dict]:
     # list_open_positions() already calls jr.update_open_trades(cur) itself.
     return [{k: v for k, v in p.items() if k != "_close"} for p in list_open_positions(cur)]
+
+
+@router.get("/closed", response_model=list[ClosedPositionRow])
+def get_closed_positions(cur=Depends(get_cursor)) -> list[dict]:
+    return list_closed_positions(cur)
 
 
 @router.post("")
